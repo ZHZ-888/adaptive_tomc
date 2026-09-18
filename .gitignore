@@ -1,0 +1,47 @@
+# ======================
+# Python cache & build
+# ======================
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+*.log
+*.tmp
+*.DS_Store
+
+# ======================
+# IDE / Editor files
+# ======================
+.idea/
+.vscode/
+*.swp
+
+# ======================
+# Data and model files
+# ======================
+data/
+scripts/models/
+*.csv
+*.npz
+*.pkl
+*.pt
+*.h5
+
+# ======================
+# Output figures and results
+# ======================
+plot/
+*.png
+*.pdf
+
+# ======================
+# OS-specific metadata
+# ======================
+*:Zone.Identifier
+*:Zone.Identifier:Zone.Identifier
+**/*:Zone.Identifier
+**/*:Zone.Identifier:Zone.Identifier
+Thumbs.db
+ehthumbs.db
+desktop.ini

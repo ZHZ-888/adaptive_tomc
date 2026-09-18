@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2025-06-22 15:44:39 by Eclipse SUMO sumo Version 1.23.1
+-->
+
+<sumoConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
+
+    <input>
+        <net-file value="merge_road_250622.net.xml"/>
+        <route-files value="merge_road_250622.rou.xml"/>
+    </input>
+
+    <gui_only>
+        <gui-settings-file value="color_test_250606.xml"/>
+    </gui_only>
+
+</sumoConfiguration>

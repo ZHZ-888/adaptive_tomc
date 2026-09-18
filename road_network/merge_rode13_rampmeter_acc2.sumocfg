@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2024-03-06 09:51:24 by Eclipse SUMO GUI Version 1.19.0
+-->
+
+<configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
+
+    <input>
+        <net-file value="merge_rode13_rampmeter_acc2.net.xml"/>
+        <route-files value="merge_rode13_rampmeter.rou.xml"/>
+        <gui-settings-file value="color_test_rm.xml"/>
+    </input>
+
+
+</configuration>

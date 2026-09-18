@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2026-09-05 21:27:36 by Eclipse SUMO netedit Version 1.23.1
+<neteditConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/neteditConfiguration.xsd">
+
+    <input>
+        <sumocfg-file value="/home/zzha/PycharmProjects/RampMerging_2026/road_network/multi_lane_motorway/real/cfg_multi_lane_merge.sumocfg"/>
+        <additional-files value="/home/zzha/PycharmProjects/RampMerging_2026/road_network/multi_lane_motorway/real/detector.add.xml"/>
+        <route-files value="/home/zzha/PycharmProjects/RampMerging_2026/road_network/multi_lane_motorway/real/rou_merge.rou.xml"/>
+        <sumo-net-file value="/home/zzha/PycharmProjects/RampMerging_2026/road_network/multi_lane_motorway/real/net_multi_lane_merge_aligned.net.xml"/>
+    </input>
+
+    <output>
+        <output-file value="/home/zzha/PycharmProjects/RampMerging_2026/road_network/multi_lane_motorway/real/net_multi_lane_merge_aligned.net.xml"/>
+    </output>
+
+    <processing>
+        <geometry.min-radius.fix.railways value="false"/>
+        <geometry.avoid-overlap value="false"/>
+        <geometry.max-grade.fix value="false"/>
+        <offset.disable-normalization value="true"/>
+        <lefthand value="1"/>
+    </processing>
+
+    <junctions>
+        <no-turnarounds value="true"/>
+        <junctions.corner-detail value="5"/>
+        <junctions.limit-turn-speed value="5.50"/>
+        <rectangular-lane-cut value="0"/>
+    </junctions>
+
+    <pedestrian>
+        <walkingareas value="0"/>
+    </pedestrian>
+
+    <netedit>
+        <ignore.routeelements value="false"/>
+    </netedit>
+
+</neteditConfiguration>
+-->
+
+<net version="1.20" junctionCornerDetail="5" lefthand="true" limitTurnSpeed="5.50" avoidOverlap="0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/net_file.xsd">
+
+    <location netOffset="-284822.12,4076764.56" convBoundary="-2000.27,-13.55,1258.99,17.95" origBoundary="174.612872,-36.840500,174.767711,-36.767827" projParameter="+proj=utm +zone=60 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"/>
+
+    <type id="highway.motorway" priority="14" numLanes="2" speed="39.44" allow="private emergency authority army vip passenger hov taxi bus coach delivery truck trailer motorcycle evehicle custom1 custom2" oneway="1"/>
+    <type id="highway.motorway_link" priority="9" numLanes="1" speed="22.22" allow="private emergency authority army vip passenger hov taxi bus coach delivery truck trailer motorcycle evehicle custom1 custom2" oneway="1"/>
+
+    <edge id=":c1_0" function="internal">
+        <lane id=":c1_0_0" index="0" allow="private emergency authority army vip passenger hov taxi bus coach delivery truck trailer motorcycle evehicle custom1 custom2" speed="30.00" length="3.02" shape="-1.53,3.21 1.49,3.20"/>
+    </edge>
+    <edge id=":c1_1" function="internal">
+        <lane id=":c1_1_0" index="0" allow="private emergency authority army vip passenger hov taxi bus coach delivery truck trailer motorcycle evehicle custom1 custom2" speed="30.00" length="2.99" shape="-1.51,-0.02 1.49,-0.00"/>
+        <lane id=":c1_1_1" index="1" allow="private emergency authority army vip passenger hov taxi bus coach delivery truck trailer motorcycle evehicle custom1 custom2" speed="30.00" length="2.99" shape="-1.49,-3.22 1.49,-3.20"/>
+    </edge>
+    <edge id=":c2_0" function="internal">
+        <lane id=":c2_0_0" index="0" allow="private emergency authority army vip passenger hov taxi bus coach delivery truck trailer motorcycle evehicle custom1 custom2" speed="30.00" length="39.36" shape="219.94,3.19 259.29,-0.07"/>
+        <lane id=":c2_0_1" index="1" allow="private emergency authority army vip passenger hov taxi bus coach delivery truck trailer motorcycle evehicle custom1 custom2" speed="30.00" length="39.36" shape="219.97,-0.01 259.29,-0.07"/>
+        <lane id=":c2_0_2" index="2" allow="private emergency authority army vip passenger hov taxi bus coach delivery truck trailer motorcycle evehicle custom1 custom2" speed="30.00" length="39.36" shape="220.01,-3.21 259.28,-3.27"/>
+    </edge>
+
+    <edge id="center" from="c2" to="e" priority="14" type="highway.motorway" spreadType="center" shape="258.40,-1.67 1258.99,0.99">
+        <lane id="center_0" index="0" allow="private emergency authority army vip passenger hov taxi bus coach delivery truck trailer motorcycle evehicle custom1 custom2" speed="30.00" length="999.70" shape="259.29,-0.07 1258.99,2.59">
+            <param key="origId" value="76564010"/>
+        </lane>
+        <lane id="center_1" index="1" allow="private emergency authority army vip passenger hov taxi bus coach delivery truck trailer motorcycle evehicle custom1 custom2" speed="30.00" length="999.70" shape="259.28,-3.27 1258.99,-0.61">
+            <param key="origId" value="76564010"/>
+        </lane>
+        <param key="ref" value="WRR;SH 18"/>
+    </edge>
+    <edge id="inflow_highway" from="up" to="c1" priority="14" type="highway.motorway" spreadType="center" shape="-2000.27,-12.99 -1943.54,-7.24 -1898.21,-4.08 -1843.74,-3.35 -1796.25,-4.88 -1738.22,-7.48 -1668.10,-10.66 -1601.11,-13.40 -1531.96,-13.55 -1470.03,-13.51 -1415.81,-12.28 -1309.56,-12.57 -1227.85,-11.51 -1135.98,-12.23 -1022.51,-8.88 -850.13,-7.86 -674.59,-7.06 -523.73,-6.14 -439.71,-4.82 -413.31,-4.44 0.00,-1.61">
+        <lane id="inflow_highway_0" index="0" allow="private emergency authority army vip passenger hov taxi bus coach delivery truck trailer motorcycle evehicle custom1 custom2" speed="30.00" length="1999.49" shape="-2000.43,-11.40 -1943.68,-5.65 -1898.28,-2.48 -1843.72,-1.75 -1796.19,-3.28 -1738.15,-5.88 -1668.03,-9.06 -1601.08,-11.80 -1531.96,-11.95 -1470.05,-11.91 -1415.83,-10.68 -1309.57,-10.97 -1227.85,-9.91 -1136.00,-10.63 -1022.54,-7.28 -850.14,-6.26 -674.60,-5.46 -523.75,-4.54 -439.73,-3.22 -413.33,-2.84 -1.51,-0.02">
+            <param key="origId" value="327889075 182651410"/>
+        </lane>
+        <lane id="inflow_highway_1" index="1" allow="private emergency authority army vip passenger hov taxi bus coach delivery truck trailer motorcycle evehicle custom1 custom2" speed="30.00" length="1999.49" shape="-2000.11,-14.58 -1943.40,-8.83 -1898.14,-5.68 -1843.76,-4.95 -1796.31,-6.48 -1738.29,-9.08 -1668.17,-12.26 -1601.14,-15.00 -1531.96,-15.15 -1470.01,-15.11 -1415.79,-13.88 -1309.55,-14.17 -1227.85,-13.11 -1135.96,-13.83 -1022.48,-10.48 -850.12,-9.46 -674.58,-8.66 -523.71,-7.74 -439.69,-6.42 -413.29,-6.04 -1.49,-3.22" changeLeft="custom1">
+            <param key="origId" value="327889075 182651410"/>
+        </lane>
+        <param key="ref" value="WRR;SH 18"/>
+    </edge>
+    <edge id="inflow_merge" from="r" to="c1" priority="9" type="highway.motorway_link" spreadType="center" shape="-280.10,17.95 -245.60,13.11 -131.95,4.93 -0.02,3.19">
+        <lane id="inflow_merge_0" index="0" allow="private emergency authority army vip passenger hov taxi bus coach delivery truck trailer motorcycle evehicle custom1 custom2" speed="30.00" length="279.21" shape="-280.10,17.95 -245.60,13.11 -131.95,4.93 -1.53,3.21">
+            <param key="origId" value="621282362"/>
+        </lane>
+    </edge>
+    <edge id="ws" from="c1" to="c2" priority="14" type="highway.motorway" spreadType="center" shape="0.00,0.00 220.19,-0.01">
+        <lane id="ws_0" index="0" allow="private emergency authority army vip passenger hov taxi bus coach delivery truck trailer motorcycle evehicle custom1 custom2" speed="30.00" length="218.48" acceleration="1" shape="1.49,3.20 219.94,3.19">
+            <param key="origId" value="76564010"/>
+        </lane>
+        <lane id="ws_1" index="1" allow="private emergency authority army vip passenger hov taxi bus coach delivery truck trailer motorcycle evehicle custom1 custom2" speed="30.00" length="218.48" shape="1.49,-0.00 219.97,-0.01">
+            <param key="origId" value="76564010"/>
+        </lane>
+        <lane id="ws_2" index="2" allow="private emergency authority army vip passenger hov taxi bus coach delivery truck trailer motorcycle evehicle custom1 custom2" speed="30.00" length="218.48" shape="1.49,-3.20 220.01,-3.21">
+            <param key="origId" value="76564010"/>
+        </lane>
+        <param key="ref" value="WRR;SH 18"/>
+    </edge>
+
+    <junction id="c1" type="priority" x="0.00" y="-1.61" incLanes="inflow_merge_0 inflow_highway_0 inflow_highway_1" intLanes=":c1_0_0 :c1_1_0 :c1_1_1" shape="1.49,-4.80 1.49,4.80 -1.54,4.81 -1.48,-4.82">
+        <request index="0" response="000" foes="000" cont="0"/>
+        <request index="1" response="000" foes="000" cont="0"/>
+        <request index="2" response="000" foes="000" cont="0"/>
+    </junction>
+    <junction id="c2" type="priority" x="159.28" y="-0.06" incLanes="ws_0 ws_1 ws_2" intLanes=":c2_0_0 :c2_0_1 :c2_0_2" shape="259.30,1.95 259.28,-4.69 220.02,-4.54 219.92,4.84" customShape="1">
+        <request index="0" response="010" foes="010" cont="0"/>
+        <request index="1" response="000" foes="001" cont="0"/>
+        <request index="2" response="000" foes="000" cont="0"/>
+    </junction>
+    <junction id="e" type="dead_end" x="1258.99" y="0.99" incLanes="center_0 center_1" intLanes="" shape="1258.98,4.19 1259.00,-2.21"/>
+    <junction id="r" type="dead_end" x="-280.10" y="17.95" incLanes="" intLanes="" shape="-280.32,16.37 -279.88,19.53"/>
+    <junction id="up" type="dead_end" x="-2000.27" y="-12.99" incLanes="" intLanes="" shape="-1999.95,-16.17 -2000.59,-9.81"/>
+
+    <connection from="inflow_highway" to="ws" fromLane="0" toLane="1" via=":c1_1_0" dir="s" state="M"/>
+    <connection from="inflow_highway" to="ws" fromLane="1" toLane="2" via=":c1_1_1" dir="s" state="M"/>
+    <connection from="inflow_merge" to="ws" fromLane="0" toLane="0" via=":c1_0_0" dir="s" state="M"/>
+    <connection from="ws" to="center" fromLane="0" toLane="0" via=":c2_0_0" dir="s" state="m"/>
+    <connection from="ws" to="center" fromLane="1" toLane="0" keepClear="0" via=":c2_0_1" dir="s" state="M"/>
+    <connection from="ws" to="center" fromLane="2" toLane="1" keepClear="0" via=":c2_0_2" dir="s" state="M"/>
+
+    <connection from=":c1_0" to="ws" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":c1_1" to="ws" fromLane="0" toLane="1" dir="s" state="M"/>
+    <connection from=":c1_1" to="ws" fromLane="1" toLane="2" dir="s" state="M"/>
+    <connection from=":c2_0" to="center" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":c2_0" to="center" fromLane="1" toLane="0" dir="s" state="M"/>
+    <connection from=":c2_0" to="center" fromLane="2" toLane="1" dir="s" state="M"/>
+
+</net>

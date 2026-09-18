@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2026-08-11 16:42:31 by Eclipse SUMO netedit Version 1.23.1
+-->
+
+<additional xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/additional_file.xsd">
+    <!-- Detectors -->
+    <inductionLoop id="mcz_entry" lane="inflow_highway_0" pos="1200.00" period="300.00" file="detector_mcz_entry.xml"/>
+    <inductionLoop id="ms_exit" lane="center_0" pos="2.07" period="300.00" file="detector_ms_exit.xml"/>
+    <inductionLoop id="pfz_entry" lane="inflow_highway_0" pos="1.00" period="300.00" file="detector_pfz_entry.xml"/>
+</additional>

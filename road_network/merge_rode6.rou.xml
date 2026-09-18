@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2024-02-12 16:50:35 by Eclipse SUMO netedit Version 1.19.0
+-->
+
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
+    <!-- Routes -->
+    <route id="route1" edges="inflow_highway left center"/>
+    <route id="route2" edges="ramp_start inflow_merge center"/>
+  
+    <!-- Vehicle Types -->
+    <vType id="idm" maxSpeed='23' startupDelay='1' impatience="0.5" sigma="0.5" minGap="4.5" carFollowModel="IDM" color="255,255,255"/>
+    <vType id="ramp" maxSpeed='23' startupDelay='1' impatience="0.5" sigma="0.5" minGap="4.5" carFollowModel="IDM" color="255,255,255"/>
+    <vType id="human" accel="2.6" decel="4.5" sigma="0.5" tau="1.0" minGap="4.5" maxSpeed="30" speedFactor="1.0" speedDev="0.1" impatience="0.5" carFollowModel="IDM" laneChangeModel="LC2013" lcStrategic="1.0" lcCooperative="1.0" lcSpeedGain="1.0" lcKeepRight="1.0"/>
+    <vType id="av" maxSpeed='23' carFollowModel="IDM" tau="0.5" color="1,0,0"/>
+    <vType id="av2" maxSpeed='23'/>
+    <vType id="av3" maxSpeed='23' tau='0.5' carFollowModel="IDM" color="1,0,0"/>
+    <vType id="customidm" maxSpeed='23'/>
+    
+    <!-- Flows -->
+    <flow id="flow_hv_main" type="idm" route="route1" begin="0" end="3600" vehsPerHour="1400.0" departSpeed="8"/>
+    <flow id="flow_av_main" type="av" route="route1" begin="0" end="3600" vehsPerHour="600.0" departSpeed="8"/>
+     
+</routes>

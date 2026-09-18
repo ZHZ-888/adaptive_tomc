@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2025-01-29 14:44:15 by Eclipse SUMO netedit Version 1.20.0
+-->
+
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
+    <!-- Routes -->
+    <route id="route0" edges="upstream inflow_highway ws center"/>
+    <route id="route1" edges="inflow_highway ws center"/>
+    <route id="route2" edges="inflow_merge ws center"/>
+  
+    <!-- Vehicle Types -->
+    <vType id="idm" maxSpeed='27.78' startupDelay='1' sigma="0.5" minGap="4.5" carFollowModel="IDM" laneChangeModel='LC2013' lcStrategic="0.0" lcCooperative="1.0" lcSpeedGain="0.0" lcKeepRight="0.0" color="255,255,255"/>
+    <vType id="av" maxSpeed='27.78' carFollowModel="IDM" tau="1.0" laneChangeModel='LC2013' lcStrategic="0.0" lcCooperative="1.0" lcSpeedGain="0.0" lcKeepRight="0.0" speedFactor="1.0" speedDev="0.0" color="1,0,0"/>
+
+</routes>

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2025-08-14 21:27:25 by Eclipse SUMO netedit Version 1.23.1
+<neteditConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/neteditConfiguration.xsd">
+
+    <input>
+        <sumocfg-file value="/home/zzha/PycharmProjects/RampMerging4_250208/road_network/single_lane_merge/merge_road_250621_shapeChanged.sumocfg"/>
+        <additional-files value="/home/zzha/PycharmProjects/RampMerging4_250208/road_network/single_lane_merge/merge_road_250606.add.xml"/>
+        <route-files value="/home/zzha/PycharmProjects/RampMerging4_250208/road_network/single_lane_merge/merge_road_250606.rou.xml"/>
+        <sumo-net-file value="/home/zzha/PycharmProjects/RampMerging4_250208/road_network/single_lane_merge/merge_road_250621_shapeChanged.net.xml"/>
+    </input>
+
+    <output>
+        <output-file value="/home/zzha/PycharmProjects/RampMerging4_250208/road_network/single_lane_merge/merge_road_250621_shapeChanged.net.xml"/>
+    </output>
+
+    <processing>
+        <geometry.min-radius.fix.railways value="false"/>
+        <geometry.avoid-overlap value="false"/>
+        <geometry.max-grade.fix value="false"/>
+        <offset.disable-normalization value="true"/>
+        <lefthand value="0"/>
+    </processing>
+
+    <junctions>
+        <no-turnarounds value="true"/>
+        <junctions.corner-detail value="5"/>
+        <junctions.limit-turn-speed value="5.50"/>
+        <rectangular-lane-cut value="0"/>
+    </junctions>
+
+    <pedestrian>
+        <walkingareas value="0"/>
+    </pedestrian>
+
+    <netedit>
+        <ignore.routeelements value="false"/>
+    </netedit>
+
+</neteditConfiguration>
+-->
+
+<net version="1.20" junctionCornerDetail="5" limitTurnSpeed="5.50" avoidOverlap="0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/net_file.xsd">
+
+    <location netOffset="100.00,141.42" convBoundary="0.00,70.03,800.00,141.42" origBoundary="-100.00,-141.42,600.00,0.00" projParameter="!"/>
+
+    <type id="highwayType" numLanes="1" speed="30.00"/>
+
+    <edge id=":center_0" function="internal">
+        <lane id=":center_0_0" index="0" speed="30.00" length="21.32" shape="589.97,136.75 594.67,137.23 600.51,138.29 606.35,139.34 611.05,139.82"/>
+    </edge>
+    <edge id=":center_1" function="internal">
+        <lane id=":center_1_0" index="0" speed="30.00" length="21.07" shape="589.98,139.82 611.05,139.82"/>
+    </edge>
+
+    <edge id="center" from="center" to="right" priority="-1" type="highwayType" length="200.00">
+        <lane id="center_0" index="0" speed="30.00" length="200.00" shape="611.05,139.82 800.00,139.82"/>
+    </edge>
+    <edge id="inflow_highway" from="inflow_highway" to="center" priority="2" type="highwayType" length="600.00" shape="0.00,141.42 100.00,141.42 600.00,141.42">
+        <lane id="inflow_highway_0" index="0" speed="30.00" length="600.00" shape="0.00,139.82 100.00,139.82 589.98,139.82"/>
+    </edge>
+    <edge id="inflow_merge" from="J4" to="center" priority="-1" length="400.00" shape="203.50,70.03 392.14,138.50 409.46,138.39 496.45,138.42 595.85,138.35 600.00,141.42">
+        <lane id="inflow_merge_0" index="0" speed="30.00" length="400.00" shape="204.05,68.53 392.42,136.90 409.46,136.79 496.45,136.82 589.97,136.75"/>
+    </edge>
+
+    <junction id="J4" type="dead_end" x="203.50" y="70.03" incLanes="" intLanes="" shape="203.50,70.03 204.59,67.02"/>
+    <junction id="center" type="priority" x="600.00" y="141.42" incLanes="inflow_merge_0 inflow_highway_0" intLanes=":center_0_0 :center_1_0" shape="611.05,141.42 611.05,138.22 606.98,137.99 604.00,137.42 601.56,136.68 599.13,135.94 595.91,135.45 589.98,135.44 589.96,138.35 590.00,141.42" radius="10.00" customShape="1">
+        <request index="0" response="10" foes="10" cont="0"/>
+        <request index="1" response="00" foes="01" cont="0"/>
+    </junction>
+    <junction id="inflow_highway" type="dead_end" x="0.00" y="141.42" incLanes="" intLanes="" shape="0.00,141.42 0.00,138.22"/>
+    <junction id="right" type="dead_end" x="800.00" y="141.42" incLanes="center_0" intLanes="" shape="800.00,138.22 800.00,141.42"/>
+
+    <connection from="inflow_highway" to="center" fromLane="0" toLane="0" via=":center_1_0" dir="s" state="M"/>
+    <connection from="inflow_merge" to="center" fromLane="0" toLane="0" via=":center_0_0" dir="s" state="m"/>
+
+    <connection from=":center_0" to="center" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":center_1" to="center" fromLane="0" toLane="0" dir="s" state="M"/>
+
+</net>

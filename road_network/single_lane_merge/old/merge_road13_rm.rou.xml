@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2024-02-12 16:50:35 by Eclipse SUMO netedit Version 1.19.0
+-->
+
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
+    <!-- Routes -->
+    <route id="route1" edges="inflow_highway center"/>
+    <route id="route2" edges="inflow_merge center"/>
+  
+    <!-- Vehicle Types -->
+    <vType id="av" maxSpeed='25' carFollowModel="IDM" tau="0.5" minGap="1.5" color="1,0,0"/>
+
+    <vType id="idm" maxSpeed='25' startupDelay='0.5' carFollowModel="IDM" color="255,255,255"/>
+    <vType id="krauss" maxSpeed='25' sigma="0.5" startupDelay='1' carFollowModel="Krauss" color="255,255,255"/>
+
+    <vType id="hv_cons" maxSpeed='25' sigma="0.7" startupDelay='1.2' tau="2" minGap="3.0" accel="2.2" decel="4.0" carFollowModel="Krauss" color="255,255,255"/>
+    <vType id="hv_avg" maxSpeed='25' sigma="0.5" startupDelay='0.8' tau="1" minGap="2.5" accel="2.6" decel="4.5" carFollowModel="Krauss" color="255,255,255"/>
+    <vType id="hv_agg" maxSpeed='25' sigma="0.3" startupDelay='0.4' tau="0.6" minGap="2.0" accel="3.2" decel="5.0" carFollowModel="Krauss" color="255,255,255"/>
+
+    
+     
+</routes>

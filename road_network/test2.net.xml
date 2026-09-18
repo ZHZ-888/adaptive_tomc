@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2024-03-20 22:35:03 by Eclipse SUMO netconvert Version 1.19.0
+<configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/netconvertConfiguration.xsd">
+
+    <input>
+        <sumo-net-file value="test.net.xml"/>
+    </input>
+
+    <output>
+        <output-file value="test2.net.xml"/>
+    </output>
+
+    <processing>
+        <geometry.min-radius.fix.railways value="false"/>
+        <geometry.max-grade.fix value="false"/>
+        <offset.disable-normalization value="true"/>
+        <lefthand value="0"/>
+    </processing>
+
+    <junctions>
+        <no-turnarounds value="true"/>
+        <junctions.corner-detail value="5"/>
+        <junctions.limit-turn-speed value="5.50"/>
+        <rectangular-lane-cut value="0"/>
+    </junctions>
+
+    <pedestrian>
+        <walkingareas value="0"/>
+    </pedestrian>
+
+</configuration>
+-->
+
+<net version="1.16" junctionCornerDetail="5" limitTurnSpeed="5.50" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/net_file.xsd">
+
+    <location netOffset="100.00,141.42" convBoundary="0.00,-63.10,800.00,146.00" origBoundary="-100.00,-141.42,600.00,0.00" projParameter="!"/>
+
+    <type id="highwayType" numLanes="1" speed="30.00"/>
+    <type id="mergeType" numLanes="1" speed="30.00"/>
+
+    <edge id=":J1_0" function="internal">
+        <lane id=":J1_0_0" index="0" speed="13.89" length="0.10" shape="100.00,144.40 100.00,144.40"/>
+    </edge>
+    <edge id=":J2_0" function="internal">
+        <lane id=":J2_0_0" index="0" speed="13.89" length="0.10" shape="400.00,144.40 400.00,144.40"/>
+    </edge>
+    <edge id=":center_0" function="internal">
+        <lane id=":center_0_0" index="0" speed="15.88" length="23.05" shape="590.69,130.09 594.71,133.08 600.46,136.26 606.48,138.79 611.30,139.82"/>
+    </edge>
+    <edge id=":center_1" function="internal">
+        <lane id=":center_1_0" index="0" speed="30.00" length="24.58" shape="586.72,139.82 611.30,139.82"/>
+    </edge>
+    <edge id=":left_0" function="internal">
+        <lane id=":left_0_0" index="0" speed="30.00" length="0.10" shape="100.00,139.82 100.00,139.82"/>
+    </edge>
+
+    <edge id="Platoon1" from="J0" to="J1" priority="1" length="100.00">
+        <lane id="Platoon1_0" index="0" speed="13.89" length="100.00" customShape="1" shape="0.00,144.40 75.81,144.40 77.94,144.40 86.94,144.40 100.00,144.40"/>
+    </edge>
+    <edge id="Platoon2" from="J1" to="J2" priority="2" length="300.00">
+        <lane id="Platoon2_0" index="0" speed="13.89" length="300.00" shape="100.00,144.40 400.00,144.40"/>
+    </edge>
+    <edge id="Sensing" from="J2" to="J3" priority="3">
+        <lane id="Sensing_0" index="0" speed="13.89" length="200.00" shape="400.00,144.40 600.00,144.40"/>
+    </edge>
+    <edge id="center" from="center" to="right" priority="-1" type="highwayType" length="200.00">
+        <lane id="center_0" index="0" speed="30.00" length="200.00" shape="611.30,139.82 800.00,139.82"/>
+    </edge>
+    <edge id="inflow_highway" from="inflow_highway" to="left" priority="-1" type="highwayType" length="100.00">
+        <lane id="inflow_highway_0" index="0" speed="30.00" length="100.00" shape="0.00,139.82 100.00,139.82"/>
+    </edge>
+    <edge id="inflow_merge" from="bottom" to="center" priority="-1" type="mergeType" length="20.00">
+        <lane id="inflow_merge_0" index="0" speed="30.00" length="20.00" shape="391.72,-64.24 590.69,130.09"/>
+    </edge>
+    <edge id="left" from="left" to="center" priority="-1" type="highwayType" length="500.00">
+        <lane id="left_0" index="0" speed="30.00" length="500.00" shape="100.00,139.82 586.72,139.82"/>
+    </edge>
+
+    <junction id="J0" type="dead_end" x="0.00" y="146.00" incLanes="" intLanes="" shape="0.00,146.00 0.00,142.80"/>
+    <junction id="J1" type="priority" x="100.00" y="146.00" incLanes="Platoon1_0" intLanes=":J1_0_0" shape="100.00,146.00 100.00,142.80 100.00,146.00">
+        <request index="0" response="0" foes="0" cont="0"/>
+    </junction>
+    <junction id="J2" type="priority" x="400.00" y="146.00" incLanes="Platoon2_0" intLanes=":J2_0_0" shape="400.00,146.00 400.00,142.80 400.00,146.00">
+        <request index="0" response="0" foes="0" cont="0"/>
+    </junction>
+    <junction id="J3" type="dead_end" x="600.00" y="146.00" incLanes="Sensing_0" intLanes="" shape="600.00,142.80 600.00,146.00"/>
+    <junction id="bottom" type="dead_end" x="390.60" y="-63.10" incLanes="" intLanes="" shape="390.60,-63.10 392.84,-65.39"/>
+    <junction id="center" type="priority" x="600.00" y="141.42" incLanes="inflow_merge_0 left_0" intLanes=":center_0_0 :center_1_0" shape="611.30,141.42 611.30,138.22 606.65,138.06 603.17,137.49 600.40,136.41 597.89,134.70 595.18,132.25 591.81,128.94 589.57,131.23 591.48,133.37 592.43,135.11 592.44,136.47 591.48,137.44 589.58,138.03 586.72,138.22 586.72,141.42" radius="10.00">
+        <request index="0" response="00" foes="10" cont="0"/>
+        <request index="1" response="01" foes="01" cont="0"/>
+    </junction>
+    <junction id="inflow_highway" type="dead_end" x="0.00" y="141.42" incLanes="" intLanes="" shape="0.00,141.42 0.00,138.22"/>
+    <junction id="left" type="priority" x="100.00" y="141.42" incLanes="inflow_highway_0" intLanes=":left_0_0" shape="100.00,141.42 100.00,138.22 100.00,141.42">
+        <request index="0" response="0" foes="0" cont="0"/>
+    </junction>
+    <junction id="right" type="dead_end" x="800.00" y="141.42" incLanes="center_0" intLanes="" shape="800.00,138.22 800.00,141.42"/>
+
+    <connection from="Platoon1" to="Platoon2" fromLane="0" toLane="0" via=":J1_0_0" dir="s" state="M"/>
+    <connection from="Platoon2" to="Sensing" fromLane="0" toLane="0" via=":J2_0_0" dir="s" state="M"/>
+    <connection from="inflow_highway" to="left" fromLane="0" toLane="0" via=":left_0_0" dir="s" state="M"/>
+    <connection from="inflow_merge" to="center" fromLane="0" toLane="0" via=":center_0_0" dir="r" state="M"/>
+    <connection from="left" to="center" fromLane="0" toLane="0" via=":center_1_0" dir="s" state="m"/>
+
+    <connection from=":J1_0" to="Platoon2" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":J2_0" to="Sensing" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":center_0" to="center" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":center_1" to="center" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":left_0" to="left" fromLane="0" toLane="0" dir="s" state="M"/>
+
+</net>

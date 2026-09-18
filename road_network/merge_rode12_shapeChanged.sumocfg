@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2024-09-27 19:17:07 by Eclipse SUMO sumo Version 1.20.0
+-->
+
+<configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
+
+    <input>
+        <net-file value="merge_rode12_shapeChanged.net.xml"/>
+        <route-files value="merge_rode12.rou.xml"/>
+        <gui-settings-file value="color_test.xml"/>
+        <additional-files value="merge_rode12.add.xml"/>
+    </input>
+
+</configuration>
