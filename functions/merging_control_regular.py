@@ -63,9 +63,8 @@ class MergingControlRegular:
         # random forest arrival time prediction model
         if self.ml:
             self.speed_level3 = 25
-            # mr_arrival_prediction_model260905_ndarray.pkl ; mr_arrival_prediction_model260831_ndarray.pkl
             self.rf_at_model = joblib.load(
-                os.path.join(project_root, 'rf_models', 'mr_arrival_prediction_model260831_ndarray.pkl'))  # mr_arrival_prediction_model260319_ndarray.pkl
+                os.path.join(project_root, 'saved_models', 'mr_arrival_prediction_model260831_ndarray.pkl'))
         else:
             # model241128 is more accurate compare with model260125 in single lane
             self.rf_at_model = joblib.load(
@@ -517,9 +516,9 @@ class MergingControlRegular:
         '''
         c_ts = round(step / 10 + 0.1, 1)
         dic_vid_groups = self.data_recorder.dic_vid_groups
-        ls_r_leader_wsA_asc = dic_vid_groups['ls_r_leader_wsA_asc']
-        ls_wsB_av_asc = dic_vid_groups['ls_wsB_av_asc']
-        for leader in set(ls_r_leader_wsA_asc + ls_wsB_av_asc):
+        ls_r_leader_msA_asc = dic_vid_groups['ls_r_leader_msA_asc']
+        ls_msB_av_asc = dic_vid_groups['ls_msB_av_asc']
+        for leader in set(ls_r_leader_msA_asc + ls_msB_av_asc):
             if leader not in self.speed_control_released:
                 self.traci.vehicle.setSpeed(leader, -1)
                 self.dic_leader_action_emerged.pop(leader, None)

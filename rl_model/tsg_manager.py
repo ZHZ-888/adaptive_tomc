@@ -21,7 +21,7 @@ class TSGManager:
 
         self.train_latest_model_path = self.run_root / "task_self_gate_v2_latest.pt"
         default_predict_model_path = (
-                Path(__file__).resolve().parent
+                Path(__file__).resolve().parent.parent
                 / "saved_models"
                 / "task_self_gate_v2_latest_tsg_search_8878185_task7.pt"
         )

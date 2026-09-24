@@ -1,13 +1,13 @@
-'''
-merging_control_jam.py
-TODO: call traci to get time many times, maybe once is enough
-'''
+# av_based_rm.py
+"""
+a av based signal free ramp metering controller
+"""
 
 from functions import print_control as prc
 from functions import v2x_disturbance as v2x
 
-class MergingControlJam:
-    def __init__(self, traci, instance_dr, merge_regular, loss_rate, ml, comm_rng=None):
+class AvRmController:
+    def __init__(self, traci, instance_dr, merge_regular, loss_rate, comm_rng=None):
         self.traci = traci
         self.data_recorder = instance_dr
         self.merge_regular = merge_regular
@@ -56,26 +56,24 @@ class MergingControlJam:
 
         self.buffer = 1.5 # platoon-to-platoon time buffer, 1.5 s
 
-        if ml:
-            self.speed_level3 = 25
-            # the time needed for ramp AV leader moving from stop point to the merging section (weaving section)
-            self.r_leader_acc_dur = 11.5 # 9.3; 11.5
-            # Mapping from platoon size to total merge completion time (from leader start to tail completing merging)
-            # after 13 may not that accurate, but only in case max interval is very large, then allow the ramp combined number exceeds 12
-            self.dic_platoon_merge_time_by_size = {1: 2.32, 2: 4.41, 3: 6.30, 4: 8.20, 5: 9.86, 6: 11.70, 7: 13.50,
-                                                   8: 15.12, 9: 16.85, 10: 18.40, 11: 20.12, 12: 21.81,
-                                                   13: 23.49, 14: 25.17, 15: 26.85, 16: 28.53, 17: 30.21, 18: 31.89,
-                                                   19: 33.57, 20: 35.25}
-            self.stop_pos = 120
-        else: # single lane
-            self.r_leader_acc_dur = 12 # single lane 12 seconds
-            self.dic_platoon_merge_time_by_size = {1: 3.75, 2: 6.17, 3: 8.3, 4: 10.6, 5: 12.67, 6: 14.73, 7: 16.91,
-                                                   8: 19.0, 9: 21.02, 10: 23.98, 11: 26.3, 12: 28.99}
-            self.stop_pos = 203.5 # stop pos of ramp platoon
+
+        self.speed_level3 = 25
+        # the time needed for ramp AV leader moving from stop point to the merging section (weaving section)
+        self.r_leader_acc_dur = 11.5 # 9.3; 11.5
+        self.stop_pos = 120
+        # Mapping from platoon size to total merge completion time (from leader start to tail completing merging)
+        # after 13 may not that accurate, but only in case max interval is very large, then allow the ramp combined number exceeds 12
+        self.dic_platoon_merge_time_by_size = \
+            {1: 2.32, 2: 4.41, 3: 6.30, 4: 8.20, 5: 9.86, 6: 11.70,
+             7: 13.50, 8: 15.12, 9: 16.85, 10: 18.40, 11: 20.12,
+             12: 21.81, 13: 23.49, 14: 25.17, 15: 26.85, 16: 28.53,
+             17: 30.21, 18: 31.89, 19: 33.57, 20: 35.25}
 
 
-    def jam_control(self, step, dic_platoon_info, ls_m_leader_up_asc, ls_m_veh_up_asc,
-                          dic_mplatoon_et, dic_vid_groups, ls_r_dep_times, mpc_interval, delta_t, pf):
+
+    def jam_control(self, step, dic_platoon_info, ls_m_leader_up_asc,
+                    ls_m_veh_up_asc, dic_mplatoon_et, dic_vid_groups,
+                    ls_r_dep_times, mpc_interval, delta_t, pf):
         self.jam_mode_start_ts = round(step/10 + 0.1, 1) if self.jam_mode_start_ts is None else self.jam_mode_start_ts
 
         disturb = self.loss_rate != 0
@@ -83,11 +81,13 @@ class MergingControlJam:
         self.pf = pf
         self.delta_t = delta_t
         if disturb:
-            return self._jam_control_disturbed(step, dic_platoon_info, ls_m_leader_up_asc, ls_m_veh_up_asc,
-                          dic_vid_groups, ls_r_dep_times, mpc_interval)
+            return self._jam_control_disturbed(
+                step, dic_platoon_info, ls_m_leader_up_asc, ls_m_veh_up_asc,
+                dic_vid_groups, ls_r_dep_times, mpc_interval)
         else:
-            return self._jam_control_clean(step, dic_platoon_info, ls_m_leader_up_asc, ls_m_veh_up_asc,
-                          dic_vid_groups, ls_r_dep_times, mpc_interval)
+            return self._jam_control_clean(
+                step, dic_platoon_info, ls_m_leader_up_asc, ls_m_veh_up_asc,
+                dic_vid_groups, ls_r_dep_times, mpc_interval)
 
     def _monitor_ramp_leader_stop(self, leader_id):
         """
@@ -294,13 +294,6 @@ class MergingControlJam:
             if c_ts - self.first_ramp_stop_ts < self.cooldown_dur:
                 self.timing = False
                 return self.timing
-        # S1
-        # if (self.stop_state
-        #         and len(ls_m_veh_up_asc) > 0
-        #         and len(self.first_resume_recorded) == 0  # condition 5
-        #         and min(ls_m_speed_up) < 5):  # condition 11
-        #     self.timing = False
-        #     return self.timing
 
         # S4
         if self.stop_state and len(ls_m_veh_up_asc) == 0:
@@ -472,8 +465,8 @@ class MergingControlJam:
         dic_result = {m_leader: [max_thw]}
         return dic_result
 
-
-    def _get_max_interval_ml(self, step, ls_m_leader_up_asc, ls_m_veh_up_asc):
+    def _get_max_interval_ml(self, step,
+                             ls_m_leader_up_asc, ls_m_veh_up_asc):
         '''
         ml - multi-lane version
         get the max interval on the mainline
@@ -778,8 +771,8 @@ class MergingControlJam:
             self.m_leader_acting = True
         return action_m_leader
 
-
-    def _push_if_not_redundant(self, step, value, update_queue, last_value_attr: str):
+    def _push_if_not_redundant(self, step, value,
+                               update_queue, last_value_attr: str):
         """
         Push a value into the specified delay update_queue if it's not redundant.
 
@@ -895,6 +888,7 @@ class MergingControlJam:
         self.last_action_params = action_params
         return queue_log
 
+
 class ShiftMode:
     def __init__(self, traci, instance_dr, av_p):
         self.regular_mode = True
@@ -909,140 +903,6 @@ class ShiftMode:
         self.ms1_slow_ts = None
         self.r_leader_past_half_acc_ts = None
         self.mode_trigger_window = 5.0
-
-    def determine_mode4(self, ls_m_veh_up_asc, ls_r_veh_up, ls_r_leader_up):
-        '''
-        determine_mode_fixed_merge_point
-
-        for fixed merging point scenario
-        241122 update: as platoon become longer, 1 lead 7
-        params:
-            ls_m_veh_up_asc: mainline veh before merging
-            ls_r_veh_up: ramp veh before merging
-            ls_r_leader_up: list of rav leader (head) before merging
-
-            min_plength:
-
-        :return:
-        '''
-        rho_jam = 90 # 90 veh/km.lane
-        check_length = 100 # the last 100m on mainline
-        jam_threshold = rho_jam * check_length / 1000  # → 9 vehicles
-
-        length_ih = self.traci.lane.getLength('inflow_highway_0') # ok
-        length_ramp = self.traci.lane.getLength('inflow_merge_0')
-
-        # Count vehicles near the end of each lane
-        ls_Mjam_veh = [
-            vid for vid in ls_m_veh_up_asc
-            if self.data_recorder.dic_pos[vid] >= length_ih - check_length
-        ]
-        ls_Rjam_veh = [
-            vid for vid in ls_r_veh_up
-            if self.data_recorder.dic_pos[vid] >= length_ramp - check_length
-        ]
-
-        if self.regular_mode and (len(ls_Mjam_veh) >= jam_threshold or len(ls_Rjam_veh) >= jam_threshold):
-            # on jam condition
-            self.regular_mode = False
-            self.jam_mode = True
-
-        if self.jam_mode and len(ls_r_leader_up) < 1 and len(ls_Mjam_veh) < jam_threshold and len(ls_Rjam_veh) < jam_threshold: # new condtion: len(ls_veh_f) < max_jam_vnum
-            self.regular_mode = True
-            self.jam_mode = False
-
-        return self.regular_mode, self.jam_mode
-
-    def determine_mode_flexible_merge_point(self, ls_msB_asc, ls_msA_asc, ls_r_leader_up):
-        '''
-        for flexible-merging-point scenario
-            Determine whether the merging controller should use regular mode or jam mode.
-        Jam mode is activated by two conditions:
-        1. Severe local density: density >= rho_jam
-        2. Dense and slow traffic: density >= rho_warning and average speed <= v_jam
-        A hysteresis logic is used for recovery to avoid frequent mode switching.
-        params:
-            ls_msB: weaving section veh (from mainline)
-            ls_msA: weaving section veh (from ramp)
-            ls_r_leader_up: list of rav leader (head) before merging
-        :return:
-        '''
-        rho_jam = 90 # 90 veh/km.lane
-        rho_warning = 80 # 70 veh/km.lane
-        v_jam = 5.0 # speed threshold (m/s)
-        check_length = 100 # the last 100m on mainline
-        jam_threshold = rho_jam * check_length / 1000  # → 9 vehicles
-        warning_threshold = rho_warning * check_length / 1000 # 7 vehicles
-
-        # Count vehicles number in the first 100 m on msA and msB (check section)
-        ls_msB_check_veh = [
-            vid for vid in ls_msB_asc
-            if self.data_recorder.dic_pos[vid] <= check_length
-        ] # from mainlane
-
-        ls_msA_check_veh = [
-            vid for vid in ls_msA_asc
-            if self.data_recorder.dic_pos[vid] <= check_length
-        ] # from ramp
-
-        speeds_msB_check = [self.data_recorder.dic_speed[vid]
-                      for vid in ls_msB_check_veh if vid in self.data_recorder.dic_speed]
-        if speeds_msB_check:
-            avg_speed_msB_check = sum(speeds_msB_check) / len(speeds_msB_check)
-        else:
-            avg_speed_msB_check = float("inf")
-
-        # Calculate average speed in the ramp detection area
-        speeds_msA_check = [self.data_recorder.dic_speed[vid]
-                      for vid in ls_msA_check_veh if vid in self.data_recorder.dic_speed]
-
-        if speeds_msA_check:
-            avg_speed_msA_check = sum(speeds_msA_check) / len(speeds_msA_check)
-        else:
-            avg_speed_msA_check = float("inf")
-
-        # Condition 1: severe local density
-        high_density = (
-                len(ls_msB_check_veh) >= jam_threshold
-                or len(ls_msA_check_veh) >= jam_threshold
-        )
-
-        # Condition 2: warning-level density with low speed
-        dense_and_slow = (
-                 len(ls_msB_check_veh) >= warning_threshold
-                 and avg_speed_msB_check <= v_jam
-         ) or (
-                 len(ls_msA_check_veh) >= warning_threshold
-                 and avg_speed_msA_check <= v_jam
-         )
-
-        if self.regular_mode and (high_density or dense_and_slow):
-        # if self.regular_mode and high_density:
-            # on jam condition
-            self.regular_mode = False
-            self.jam_mode = True
-
-        ls_veh_c1_0_0 = self.traci.lane.getLastStepVehicleIDs(':c1_0_0')
-        num_leader_c1_0_0 = sum(1 for vid in ls_veh_c1_0_0 if 'ravh' in vid) # junction between ramp_proper and msA
-        num_leader_msA = sum(1 for vid in ls_msA_asc if 'ravh' in vid)
-        num_leader_msB = sum(1 for vid in ls_msB_asc if 'ravh' in vid)
-        num_leader_ramp_proper = len(ls_r_leader_up)
-        num_leader_ramp_ms = num_leader_c1_0_0 + num_leader_msA + num_leader_msB + num_leader_ramp_proper
-
-        recover_condition = (
-                num_leader_ramp_ms < 1
-                and len(ls_msB_check_veh) < warning_threshold
-                and len(ls_msA_check_veh) < warning_threshold
-                and avg_speed_msB_check > v_jam
-                and avg_speed_msA_check > v_jam
-        )
-
-        if self.jam_mode and recover_condition: # new condtion: len(ls_veh_f) < max_jam_vnum
-            self.regular_mode = True
-            self.jam_mode = False
-
-        return self.regular_mode, self.jam_mode
-
 
     def determine_mode_low_sensor_reliance(self, ls_r_leader_msA_asc,
                                            ls_msB_av_asc):

@@ -5,22 +5,23 @@ import os
 import re
 import joblib
 import numpy as np
+from functions.leader_assigner import PlatoonLeaderAssigner
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
 
 
 class PlatoonBasic:
-    def __init__(self, traci, data_recorder, pass_recorder, max_team_size=11):
+    def __init__(self, traci, data_recorder, pass_recorder, max_team_size=12):
         self.traci = traci
         self.data_recorder = data_recorder
         self.pass_recorder = pass_recorder
         # Load Random Forest model for follower state prediction
-        # fs_model_name = 'follower_state_prediction_model_251121_ndarray.pkl'
         fs_model_name = 'follower_state_prediction_model_260715_ndarray.pkl'
-        # fs_model_name = 'follower_state_prediction_model_260829_ndarray_final.pkl'
         self.fs_model = joblib.load(
-            os.path.join(project_root, 'rf_models', fs_model_name))
+            os.path.join(project_root, 'saved_models', fs_model_name))
+        self.leader_assigner = PlatoonLeaderAssigner(
+            max_team_size=max_team_size)
 
         self.dic_pass_time = self.pass_recorder.dic_pass_time
         self.max_speed = self.data_recorder.max_speed # 27.78 m/s => 100km/h
@@ -92,7 +93,7 @@ class PlatoonBasic:
         self.data_recorder.ls_m_leader_his_asc = list(self.dic_platoon_size.keys())
         return self.dic_platoon_size, dic_platoon_size, dic_platoon_members
 
-    def tag_vehicles13(self, ls_ihA_asc, max_team_size=11, enable_lhr=True):
+    def tag_vehicles13(self, ls_ihA_asc, enable_lhr=True):
         '''
         260301 crucial update, only keep dic_tags for vehicles still on current road network
 
@@ -101,13 +102,10 @@ class PlatoonBasic:
 
         :param ls_ihA: vehicle list ordered from newest to oldest (descending)
                ls_ihA_asc: oldest to newest
-        :param max_team_size: maximum allowed platoon size
         :return: updated dic_tags,
                  ls_leader_AV, ascending order
                  ls_follower_AV
         '''
-        self.max_team_size = max_team_size
-
         if self.ls_ihA_lastStep != ls_ihA_asc:
             old_dic_tags = self.dic_tags.copy()
             # === get new_dic, make sure the order is correct ===
@@ -130,8 +128,6 @@ class PlatoonBasic:
             current_team_size = 0
 
             for i, id in enumerate(ls_ihA_asc):
-                if id == 'm_av1489':
-                    pass
                 if 'av' in id:
                     # Reconstruct leader and team size based on previous tagging
                     ls_keys = list(self.dic_tags.keys())
@@ -148,9 +144,9 @@ class PlatoonBasic:
 
                     # === Proactive split: check if too many HVs follow this AV ===
                     too_many_hv_behind = False
-                    if (current_leader is not None) and (current_team_size <= max_team_size):
+                    if (current_leader is not None) and (current_team_size <= self.max_team_size):
                         hv_count = 0
-                        remaining_slots = max_team_size - current_team_size
+                        remaining_slots = self.max_team_size - current_team_size
                         for j in range(i + 1, len(ls_ihA_asc)):
                             id_next = ls_ihA_asc[j]
                             if 'hv' in id_next:
@@ -161,7 +157,7 @@ class PlatoonBasic:
                             too_many_hv_behind = True
 
                     # === Assign AV as leader if needed ===
-                    if ((current_leader is None) or (current_team_size > max_team_size)
+                    if ((current_leader is None) or (current_team_size > self.max_team_size)
                             or (id in self.dic_AVroleChange)):
                         self.dic_tags[id] = 1  # Mark as leader
                         current_leader = id
@@ -182,8 +178,6 @@ class PlatoonBasic:
                             current_team_size = 1
                         else: # Assign AV as follower
                             self.dic_tags[id] = 2
-                            if id == 'm_av1489':
-                                pass
                             removed1 = self.dic_platoon_members.pop(id, None)
                             removed2 = self.dic_platoon_size.pop(id, None)
                             current_team_size += 1

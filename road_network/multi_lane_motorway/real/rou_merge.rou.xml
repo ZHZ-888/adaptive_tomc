@@ -5,8 +5,8 @@
 
 <routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
 <!-- Routes -->
-    <route id="route_m" edges="inflow_highway ws center"/>
-    <route id="route_r" edges="inflow_merge ws center"/>
+    <route id="route_m" edges="inflow_highway ms center"/>
+    <route id="route_r" edges="inflow_merge ms center"/>
 
 
     <!-- Vehicle Types -->

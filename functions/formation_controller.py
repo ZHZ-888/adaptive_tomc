@@ -101,7 +101,7 @@ class FormationController:
         # ******** PLATOON INITIALISATION ********
         dic_tags, ls_leader_AV, ls_follower_AV, dic_AVroleChange \
             = self.p_basic.tag_vehicles13(
-                ls_ihA_asc, max_team_size=self.max_team_size, enable_lhr=self.modules['lhr'])
+                ls_ihA_asc, enable_lhr=self.modules['lhr'])
         his_dic_platoon_size, dic_platoon_size, dic_platoon_members \
             = self.p_basic.get_platoon_size3(ls_ihA_asc, ls_leader_AV)
         dic_id_preState, dic_id_features \
@@ -187,7 +187,7 @@ class FormationController:
         return dic_standard_platoon
 
     def control_platoon_gap(self, step, ls_vehid, ls_leader_AV, ls_follower_AV,
-                            ls_m_leader_up_asc, ls_wsB_av_asc, dic_id_preState):
+                            ls_m_leader_up_asc, ls_msB_av_asc, dic_id_preState):
         '''
         leader speed control
         control gaps between platoons; do not rely on V2X, it is onboard decision
@@ -196,7 +196,7 @@ class FormationController:
             return
         self.p_basic.form_platoon3(ls_vehid, ls_leader_AV, ls_follower_AV)
         self.p_basic.restore_speed_limit3(step, ls_leader_AV, ls_m_leader_up_asc, dic_id_preState)  # improve to 25 m/s if platoon formed
-        self.p_basic.restore_speed_limit2(ls_wsB_av_asc)  # restore to 27.78 m/s on wsB
+        self.p_basic.restore_speed_limit2(ls_msB_av_asc)  # restore to 27.78 m/s on msB
         # set follower color as light green
         self.p_basic.set_follower_color()
 
@@ -222,7 +222,7 @@ class FormationController:
         ls_ihA_asc = dic_vid_groups['ls_ihA_asc']  # all veh on inflow_highway, ascending order
         ls_ihAB_av_asc = dic_vid_groups['ls_ihAB_av_asc']
         ls_ihB_av_asc = dic_vid_groups['ls_ihB_av_asc']
-        ls_wsB_av_asc = dic_vid_groups['ls_wsB_av_asc']
+        ls_msB_av_asc = dic_vid_groups['ls_msB_av_asc']
         ls_m_leader_up_asc = dic_vid_groups['ls_m_leader_up_asc']
 
         # ******** PLATOON INITIALISATION (DLA, dynamic leader assignment) ********
@@ -260,7 +260,7 @@ class FormationController:
         # Control gaps between platoons
         if self.modules['tsc']:
             self.control_platoon_gap(step, ls_vehid, ls_leader_AV, ls_follower_AV,
-                                     ls_m_leader_up_asc, ls_wsB_av_asc, dic_id_preState)
+                                     ls_m_leader_up_asc, ls_msB_av_asc, dic_id_preState)
 
         # ******** UPDATE PLATOON MEMBERS BY LOOP DETECTOR RECORD INFO ********
         _ = self.pass_recorder.update(step)

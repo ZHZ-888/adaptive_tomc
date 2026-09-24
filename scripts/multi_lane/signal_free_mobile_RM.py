@@ -24,8 +24,8 @@ from functions import merging_traffic_calibrator as mtc
 from functions.computation_logger import ComputationLogger, measure_cycle
 from functions import accident_simulation
 
-def mpgc_main(av_p, r_fr, m_fr, seed, r_autoFollow_p=0, r_platoon_p=1,
-              loss_rate=0, gui=False, plot=False, display=False,
+def mpgc_main(av_p, r_fr, m_fr, seed, loss_rate=0,
+              gui=False, plot=False, display=False,
               lc=True, st=1500, tsg_mode='predict', max_team_size=12,
               fc_mode='full'):
     set_global_seed(seed, enable=True)  # set global random seed (especially for RL training)
@@ -110,15 +110,13 @@ def mpgc_main(av_p, r_fr, m_fr, seed, r_autoFollow_p=0, r_platoon_p=1,
         av_p0, av_p1 = av_p, av_p
         m0_dpt_type = vg.generate_entry_arrivals_shifted_exp(st, av_p0, m_fr, seed)
         m1_dpt_type = vg.generate_entry_arrivals_shifted_exp(st, av_p1, m_fr, 100 - seed)
-        r_dpt_type = vg.get_schedule2(st, av_p, r_fr, r_platoon_p,
-                                      max_attempts, plot, seed, display)
+        # r_dpt_type = vg.get_schedule2(st, av_p, r_fr, r_platoon_p,
+        #                               max_attempts, plot, seed, display)
+        r_dpt_type = vg.generate_entry_arrivals_shifted_exp(st, av_p, r_fr, seed) # ramp vehicle random arrival
         # ramp road veh depature schedule
         veh_gen = vg.VehGen(traci, seed)  # function related to veh generation
         data_recorder = dr.DataRecording(traci)
         data_recorder.max_platoon_size = max_team_size
-        data_recorder.get_avhid_ptype(r_dpt_type = r_dpt_type)  # here only have r_dpt_type
-
-
 
         formation_controller = fc.FormationController(data_recorder, traci,
                                                       loss_rate=loss_rate, tsg_mode=tsg_mode,
@@ -134,7 +132,7 @@ def mpgc_main(av_p, r_fr, m_fr, seed, r_autoFollow_p=0, r_platoon_p=1,
         (dic_follower_state, his_dic_platoon_size,
          dic_id_features, tp, speed_log, queue_log, ts_first_jam, ts_first_back_to_regular) = \
             loop(traci, st, data_recorder, veh_gen, formation_controller, merging_controller,
-                 lc, r_autoFollow_p, m0_dpt_type, m1_dpt_type, r_dpt_type, comp_logger,
+                 lc, m0_dpt_type, m1_dpt_type, r_dpt_type, comp_logger,
                  sim_step=sim_step)
 
         split_reward_log = (
@@ -165,7 +163,7 @@ def mpgc_main(av_p, r_fr, m_fr, seed, r_autoFollow_p=0, r_platoon_p=1,
 
 def loop(traci, st, data_recorder,
          veh_gen, formation_controller,
-         merging_controller, lc, r_autoFollow_p,
+         merging_controller, lc,
          m0_dpt_type=None, m1_dpt_type=None, r_dpt_type=None,
          comp_logger=None, sim_step=0.1):
     # START SIMULATION
@@ -190,7 +188,8 @@ def loop(traci, st, data_recorder,
         # veh_gen.veh_gen_homo(step, m1_dpt_type, 'm', 'route_m', 27.5, '1')
 
         # ramp vehicle generation
-        veh_gen.platoon_gen(step, r_dpt_type, 'r', r_autoFollow_p)
+        # veh_gen.platoon_gen(step, r_dpt_type, 'r', r_autoFollow_p)
+        veh_gen.veh_gen_hetero(step, r_dpt_type, 'r', 'route_r', 10, '0')
 
         # traffic_calibrator.update()
         with measure_cycle(
@@ -262,7 +261,6 @@ def main(args=None, root=None):
         r_fr=parsed_args.r_fr, # default 800
         m_fr=parsed_args.m_fr, # default 1500; parsed_args.m_fr
         seed=parsed_args.seed,
-        r_platoon_p=parsed_args.r_platoon_p,
         loss_rate=parsed_args.loss_rate,
         gui=parsed_args.gui,
         lc=parsed_args.lc,
@@ -296,7 +294,6 @@ def main(args=None, root=None):
             "mainline_demand": parsed_args.m_fr,
             "seed": parsed_args.seed,
             "max_team_size": parsed_args.max_team_size,
-            "r_platoon_p": parsed_args.r_platoon_p,
             "loss_rate": parsed_args.loss_rate,
             "CFR": res["cfr"],
             "SPR": res["spr"],
@@ -373,11 +370,9 @@ if __name__ == '__main__':
      tp, speed_log, queue_log, output_file_path,
      se_result, ce_result, ts_first_jam, ts_first_back_to_regular) = mpgc_main(
         av_p = 0.1, # 0.1
-        r_fr = 1400, # 1300
+        r_fr = 800, # 1300
         m_fr = 1500, # 1500
         seed = 2, # 2 analysis
-        r_autoFollow_p = 0,  # auto follow proportion
-        r_platoon_p = 0.7, # percentage of rplatoon vehicles on ramp
         loss_rate = 0, # 0.15
         gui = True,
         plot = False,

@@ -23,8 +23,8 @@ class MergingController:
                                                        comp_logger=comp_logger)
         self.action_mgr = act_mgr.ActionManager(
             self.data_recorder, self.merge_regular, loss_rate, comm_rng)
-        self.merge_jam = mcj.MergingControlJam(traci, self.data_recorder, self.merge_regular, loss_rate,
-                                               ml, comm_rng)  # vehicle control during_jame3
+        self.merge_jam = mcj.MergingControlJam(traci, self.data_recorder, self.merge_regular,
+                                               loss_rate, ml, comm_rng)  # vehicle control during_jame3
         self.mode_switch = mcj.ShiftMode(traci, self.data_recorder, av_p)
         self.mpc_interval = mpc_interval
         self.delta_t = delta_t
@@ -50,10 +50,6 @@ class MergingController:
         c_ts = round(step/10 + 0.1, 1)
         self.merge_regular.current_step = step
 
-        if not self.ls_r_dep_times:
-            for key, value in r_dpt_type.items():
-                self.ls_r_dep_times.extend(range(key, key + len(value)))
-
         # === 1. Unpack veh info ===
         dic_vid_groups = (
             self.data_recorder.dic_vid_groups
@@ -65,17 +61,9 @@ class MergingController:
         ls_r_veh_net_asc = dic_vid_groups['ls_r_veh_net_asc']
         ls_r_veh_net_last_asc = dic_vid_groups['ls_r_veh_net_last_asc']
         # below leader lists all are before the MS (merging section)
-        ls_r_leader_up = dic_vid_groups['ls_r_leader_up']
         ls_r_leader_up_asc = dic_vid_groups['ls_r_leader_up_asc']  # min => max
         ls_m_leader_up_asc = dic_vid_groups['ls_m_leader_up_asc']  # min => max
-
         ls_m_veh_up_asc = dic_vid_groups['ls_m_veh_up_asc']
-        ls_wsA_asc = dic_vid_groups['ls_wsA_asc']
-        ls_wsB_av_asc = dic_vid_groups['ls_wsB_av_asc']
-        # ramp leader on MS_0
-        ls_r_leader_wsA_asc = dic_vid_groups['ls_r_leader_wsA_asc']
-        ls_wsB_asc = dic_vid_groups['ls_wsB_asc']
-
 
         # === 2. Platoon info (scripts + ramp) ===
         dic_platoon_info = self.merge_regular.get_platoon_info2()
@@ -92,24 +80,8 @@ class MergingController:
             interval=self.mpc_interval)
 
         # === 3. Determine mode: regular / jam ===
-        # regular_mode, jam_mode = self.mode_switch.determine_mode4(
-        #     ls_m_veh_up_asc,
-        #     ls_r_veh_up,
-        #     ls_r_leader_up
-        # )
-
-        # regular_mode, jam_mode = self.mode_switch.determine_mode_flexible_merge_point(
-        #     ls_wsB_asc,
-        #     ls_wsA_asc,
-        #     ls_r_leader_up)
-
-        regular_mode, jam_mode = self.mode_switch.determine_mode_low_sensor_reliance(
-            ls_r_leader_wsA_asc,
-            ls_wsB_av_asc)
-
-        # jam_mode = True
-        # regular_mode = False
-        # self.merge_regular.set_veh_color()
+        jam_mode = True
+        regular_mode = False
 
         # === 4. Apply corresponding control logic ===
         if jam_mode:
@@ -127,7 +99,7 @@ class MergingController:
                 self.mpc_interval,
                 self.delta_t,
                 self.pf
-            )  # queue_length
+            )
 
         elif regular_mode:
             if self.ts_first_jam and self.ts_first_back_to_regular is None:
@@ -171,7 +143,7 @@ class MergingController:
                 if self.traci.vehicle.getStopState(vid) == 0:
                     # Pending stop: resume() is invalid, remove the stop.
                     self.traci.vehicle.replaceStop(vid, 0, "")
-                    self.traci.vehicle.moveTo(vid, "ws_0", 5.0) # bugs bugs go die!!! fuck
+                    self.traci.vehicle.moveTo(vid, "ms_0", 5.0) # bugs bugs go die!!! fuck
                     self.traci.vehicle.setSpeed(vid, -1)
                 else:
                     # reached stop: resume the stopped vehicle.
