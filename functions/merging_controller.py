@@ -10,7 +10,7 @@ It only wraps existing logic in a cleaner interface.
 from functions import print_control as prc
 from functions import action_manager as act_mgr
 from functions import merging_control_regular as mcr
-from functions import merging_control_jam as mcj
+from functions import av_based_rm as avrm
 
 
 class MergingController:
@@ -23,9 +23,9 @@ class MergingController:
                                                        comp_logger=comp_logger)
         self.action_mgr = act_mgr.ActionManager(
             self.data_recorder, self.merge_regular, loss_rate, comm_rng)
-        self.merge_jam = mcj.MergingControlJam(traci, self.data_recorder, self.merge_regular,
-                                               loss_rate, ml, comm_rng)  # vehicle control during_jame3
-        self.mode_switch = mcj.ShiftMode(traci, self.data_recorder, av_p)
+        self.av_rm = avrm.AvRmController(traci, self.data_recorder, self.merge_regular,
+                                         loss_rate, comm_rng)
+
         self.mpc_interval = mpc_interval
         self.delta_t = delta_t
         self.warmup_time = warmup_time
@@ -36,7 +36,7 @@ class MergingController:
         self.ts_first_jam = None
         self.ts_first_back_to_regular = None
 
-    def step(self, st, step, r_dpt_type):
+    def step(self, st, step):
         '''
 
         :param st: total simulation time
@@ -54,8 +54,7 @@ class MergingController:
         dic_vid_groups = (
             self.data_recorder.dic_vid_groups
             if self.pf
-            else self.data_recorder.record_vehinfo()
-        )
+            else self.data_recorder.record_vehinfo())
 
         ls_veh_id = dic_vid_groups['ls_vehid']
         ls_r_veh_net_asc = dic_vid_groups['ls_r_veh_net_asc']
@@ -79,83 +78,23 @@ class MergingController:
             m=True,
             interval=self.mpc_interval)
 
-        # === 3. Determine mode: regular / jam ===
-        jam_mode = True
-        regular_mode = False
-
         # === 4. Apply corresponding control logic ===
-        if jam_mode:
-            if self.ts_first_jam is None:
-                self.ts_first_jam = c_ts
-            # Jam mode control
-            queue_log = self.merge_jam.jam_control(
-                step,
-                dic_platoon_info,
-                ls_m_leader_up_asc,
-                ls_m_veh_up_asc,
-                dic_mplatoon_et,
-                dic_vid_groups,
-                self.ls_r_dep_times,
-                self.mpc_interval,
-                self.delta_t,
-                self.pf
-            )
-
-        elif regular_mode:
-            if self.ts_first_jam and self.ts_first_back_to_regular is None:
-                self.ts_first_back_to_regular = c_ts
-
-            # reset jam_mode params
-            self.reset_jam_mode()
-
-            # Regular mode control
-            queue_log = []
-            _, new_leader_flag = self.merge_regular.update_platoon_et(step, ls_r_leader_up_asc, m=False,
-                                                     interval=self.mpc_interval) # get ramp platoon ET
-
-            if c_ts % 1 == 0: prc.print_message('**in regular mode**')
-            # find head rav; if can be ingored
-            _ = self.merge_regular.find_r_leader(ls_r_veh_net_asc, ls_r_veh_net_last_asc)
-            # get action information
-            (dic_leader_action, dic_m_leader_followup_action) = self.action_mgr.get_action_info(
-                step, new_leader_flag, interval=self.mpc_interval)
-
-            # execute actions
-            self.action_mgr.execute_action(step, dic_leader_action)
-            self.action_mgr.execute_action(step, dic_m_leader_followup_action)
+        queue_log = self.av_rm.jam_control(
+            step,
+            dic_platoon_info,
+            ls_m_leader_up_asc,
+            ls_m_veh_up_asc,
+            dic_mplatoon_et,
+            dic_vid_groups,
+            self.ls_r_dep_times,
+            self.mpc_interval,
+            self.delta_t,
+            self.pf)
 
         # average_velocity of this step and its jam_state
-        step_speed = self.data_recorder.get_average_speed(step, ls_veh_id, jam_mode)
+        step_speed = self.data_recorder.get_average_speed(step, ls_veh_id, jam_mode=True)
         self.speed_log.append(step_speed)  # collect into one list
 
         # If neither regular nor jam_mode, jam_mode is False by default.
         return tp, queue_log, self.ts_first_jam, self.ts_first_back_to_regular
 
-
-    def reset_jam_mode(self):
-        # for cooldown function: reset jam_mode parameters
-        if not self.merge_jam.r_leader_stop:
-            return
-
-        vid = self.merge_jam.r_leader_stop
-        if vid in self.traci.vehicle.getIDList():
-            try:
-                if self.traci.vehicle.getStopState(vid) == 0:
-                    # Pending stop: resume() is invalid, remove the stop.
-                    self.traci.vehicle.replaceStop(vid, 0, "")
-                    self.traci.vehicle.moveTo(vid, "ms_0", 5.0) # bugs bugs go die!!! fuck
-                    self.traci.vehicle.setSpeed(vid, -1)
-                else:
-                    # reached stop: resume the stopped vehicle.
-                    self.traci.vehicle.resume(vid)
-                    self.traci.vehicle.setSpeed(vid, -1)
-            except Exception as exc:
-                print(f"Failed to release ramp leader {vid}: {exc}")
-                return
-
-        self.merge_jam.r_leader_stop = None
-        self.merge_jam.stop_state = False
-        self.merge_jam.r_leader_stop = None
-        self.merge_jam.jam_mode_start_ts = None
-        self.merge_jam.first_ramp_stop_ts = None
-        self.merge_jam.stop_times = {}

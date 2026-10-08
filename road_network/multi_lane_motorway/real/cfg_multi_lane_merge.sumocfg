@@ -12,7 +12,7 @@
     </input>
 
     <gui_only>
-        <gui-settings-file value="vS1.view.xml"/>
+        <gui-settings-file value="vS2.view.xml"/>
     </gui_only>
 
 </sumoConfiguration>

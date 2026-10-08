@@ -99,8 +99,8 @@ class FormationController:
 
     def platoon_initialise(self, ls_ihA_asc, ls_vehid, rf_model):
         # ******** PLATOON INITIALISATION ********
-        dic_tags, ls_leader_AV, ls_follower_AV, dic_AVroleChange \
-            = self.p_basic.tag_vehicles13(
+        dic_tags, ls_leader_AV, ls_follower_AV, dic_mAVrole_changes \
+            = self.p_basic.tag_mainline_vehicle(
                 ls_ihA_asc, enable_lhr=self.modules['lhr'])
         his_dic_platoon_size, dic_platoon_size, dic_platoon_members \
             = self.p_basic.get_platoon_size3(ls_ihA_asc, ls_leader_AV)
@@ -224,12 +224,22 @@ class FormationController:
         ls_ihB_av_asc = dic_vid_groups['ls_ihB_av_asc']
         ls_msB_av_asc = dic_vid_groups['ls_msB_av_asc']
         ls_m_leader_up_asc = dic_vid_groups['ls_m_leader_up_asc']
+        ls_r_veh_up_asc = dic_vid_groups['ls_r_veh_up_asc']
+
+        # Assign ramp leaders for freely arriving ramp vehicles.
+        dic_ramp_tags, ls_ramp_leader_AV = self.p_basic.tag_ramp_vehicles(
+                                                    ls_r_veh_up_asc=ls_r_veh_up_asc,
+                                                    ls_vehid=ls_vehid,
+                                                    enable_proactive_split=True)
 
         # ******** PLATOON INITIALISATION (DLA, dynamic leader assignment) ********
         # ** split_promote **
         (dic_tags, ls_leader_AV, ls_follower_AV, dic_platoon_size,
          dic_platoon_members, his_dic_platoon_size, dic_id_preState, dic_id_features) \
             = self.platoon_initialise(ls_ihA_asc, ls_vehid, rf_model=rf_model)
+        # set AV role colors
+        self.p_basic.set_av_role_colors(role_tags=dic_ramp_tags, vehicle_ids=ls_vehid)
+        self.p_basic.set_av_role_colors(role_tags=dic_tags, vehicle_ids=ls_vehid)
 
         # ******** HANDLE OVERSIZED PLATOONS (SE) ********
         dic_nonOversizedP = self.splitting(st, step, ls_ihA_asc, ls_ihB_av_asc, dic_platoon_size,

@@ -5,7 +5,7 @@ import os
 import re
 import joblib
 import numpy as np
-from functions.leader_assigner import PlatoonLeaderAssigner
+from functions import leader_assigner
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
@@ -16,12 +16,12 @@ class PlatoonBasic:
         self.traci = traci
         self.data_recorder = data_recorder
         self.pass_recorder = pass_recorder
+        self.leader_assigner = leader_assigner.PlatoonLeaderAssigner(
+            max_team_size=max_team_size)
         # Load Random Forest model for follower state prediction
         fs_model_name = 'follower_state_prediction_model_260715_ndarray.pkl'
         self.fs_model = joblib.load(
             os.path.join(project_root, 'saved_models', fs_model_name))
-        self.leader_assigner = PlatoonLeaderAssigner(
-            max_team_size=max_team_size)
 
         self.dic_pass_time = self.pass_recorder.dic_pass_time
         self.max_speed = self.data_recorder.max_speed # 27.78 m/s => 100km/h
@@ -38,7 +38,7 @@ class PlatoonBasic:
         self.dic_platoon_size = {}  # all leaderAV and its platoon size
         self.dic_platoon_members = {}  # all leaderAV and its members
 
-        self.dic_AVroleChange = {}  # dic_AVroleChange = {AV_id: type, ...} record AV changed its role
+        self.dic_mAVrole_changes = {}  # dic_mAVrole_changes = {AV_id: type, ...} record AV changed its role
         self.set_leader_fol_states_checked = set()
         self.set_leader_fol_states_checked_sensor = set() # sensor measurement version
         self.ls_leader_AV = []
@@ -54,6 +54,12 @@ class PlatoonBasic:
         # Track last leader for each follower to detect leader changes
         self.dic_fol_last_leader = {}
         self.dic_leader_free_triggered = {}
+
+        # for ramp leader assignment
+        self.dic_ramp_tags = {}
+        self.dic_rAVrole_changes = {}
+        self.ls_ramp_lastStep = []
+        self.set_ramp_leader_ids = set()
 
     def get_platoon_size3(self, ls_ihA_asc, ls_leader):
         '''
@@ -93,7 +99,7 @@ class PlatoonBasic:
         self.data_recorder.ls_m_leader_his_asc = list(self.dic_platoon_size.keys())
         return self.dic_platoon_size, dic_platoon_size, dic_platoon_members
 
-    def tag_vehicles13(self, ls_ihA_asc, enable_lhr=True):
+    def tag_mainline_vehicle(self, ls_ihA_asc, enable_lhr=True):
         '''
         260301 crucial update, only keep dic_tags for vehicles still on current road network
 
@@ -124,68 +130,15 @@ class PlatoonBasic:
             self.dic_tags = new_dic
 
             # === tag every id in ls_ihA_asc ===
-            current_leader = None
-            current_team_size = 0
+            self.dic_tags, self.dic_mAVrole_changes, m_platoon_types = (
+                self.leader_assigner.assign(ls_ihA_asc, self.dic_tags, old_dic_tags,
+                                             self.dic_mAVrole_changes, enable_lhr))
 
-            for i, id in enumerate(ls_ihA_asc):
-                if 'av' in id:
-                    # Reconstruct leader and team size based on previous tagging
-                    ls_keys = list(self.dic_tags.keys())
-                    this_index = ls_keys.index(id)
-                    n = 0
-                    # range(start, stop, step); step = -1 (count backward)
-                    for idx in range(this_index - 1, -1, -1):
-                        n += 1
-                        tagged_id = ls_keys[idx]
-                        if self.dic_tags.get(tagged_id) == 1:
-                            current_leader = tagged_id
-                            current_team_size = n + 1
-                            break
-
-                    # === Proactive split: check if too many HVs follow this AV ===
-                    too_many_hv_behind = False
-                    if (current_leader is not None) and (current_team_size <= self.max_team_size):
-                        hv_count = 0
-                        remaining_slots = self.max_team_size - current_team_size
-                        for j in range(i + 1, len(ls_ihA_asc)):
-                            id_next = ls_ihA_asc[j]
-                            if 'hv' in id_next:
-                                hv_count += 1
-                            else:
-                                break
-                        if hv_count > remaining_slots:
-                            too_many_hv_behind = True
-
-                    # === Assign AV as leader if needed ===
-                    if ((current_leader is None) or (current_team_size > self.max_team_size)
-                            or (id in self.dic_AVroleChange)):
-                        self.dic_tags[id] = 1  # Mark as leader
-                        current_leader = id
-                        current_team_size = 1
-                    elif enable_lhr and too_many_hv_behind:
-                        if 'b' in id:
-                            self.dic_AVroleChange[id] = 'split_insert'
-                        else:
-                            self.dic_AVroleChange[id] = 'split_promote'
-                        self.dic_tags[id] = 1  # Mark as leader
-                        current_leader = id
-                        current_team_size = 1
-                    else:
-                        # new added
-                        if old_dic_tags.get(id) == 1 and current_leader in self.dic_AVroleChange:
-                            self.dic_tags[id] = 1
-                            current_leader = id
-                            current_team_size = 1
-                        else: # Assign AV as follower
-                            self.dic_tags[id] = 2
-                            removed1 = self.dic_platoon_members.pop(id, None)
-                            removed2 = self.dic_platoon_size.pop(id, None)
-                            current_team_size += 1
-                else:
-                    # HV vehicle
-                    self.dic_tags[id] = 0
-                    if current_leader is not None:
-                        current_team_size += 1
+            # Remove stale platoon records for AV followers.
+            for vid in ls_ihA_asc:
+                if self.dic_tags.get(vid) == 2:
+                    self.dic_platoon_members.pop(vid, None)
+                    self.dic_platoon_size.pop(vid, None)
 
             self.ls_ihA_lastStep = ls_ihA_asc
 
@@ -203,7 +156,88 @@ class PlatoonBasic:
             self.ls_leader_AV = list(dic_leader_AV_c.keys())
             self.ls_follower_AV = list(dic_follower_AV_c.keys())
 
-        return self.dic_tags, self.ls_leader_AV, self.ls_follower_AV, self.dic_AVroleChange
+        return self.dic_tags, self.ls_leader_AV, self.ls_follower_AV, self.dic_mAVrole_changes
+
+    def tag_ramp_vehicles(self,
+                          ls_r_veh_up_asc,
+                          ls_vehid,
+                          enable_proactive_split=False):
+        """
+        Assign leaders to freely arriving ramp vehicles.
+
+        Parameters
+        ----------
+        ls_r_veh_up_asc
+            Ramp vehicles before merging, ordered from downstream to upstream.
+        ls_vehid
+            All vehicle IDs currently present in the road network.
+        enable_proactive_split
+            Whether to promote an AV before the current platoon becomes oversized.
+
+        Returns
+        -------
+        tuple
+            Ramp vehicle role tags and current ramp leader IDs (region: inflow_merge).
+        """
+        if self.ls_ramp_lastStep != ls_r_veh_up_asc:
+            old_ramp_tags = self.dic_ramp_tags.copy()
+
+            # Find the first current ramp vehicle already stored in the role table.
+            anchor_id = next(
+                (vehicle_id for vehicle_id in ls_r_veh_up_asc
+                 if vehicle_id in self.dic_ramp_tags), None,)
+
+            new_ramp_tags = {}
+
+            # Preserve tags of active vehicles beyond the ramp assignment area.
+            for vehicle_id in self.dic_ramp_tags:
+                if vehicle_id == anchor_id:
+                    break
+
+                new_ramp_tags[vehicle_id] = (
+                    self.dic_ramp_tags[vehicle_id])
+
+            # Add all vehicles currently in the ramp assignment area.
+            for vehicle_id in ls_r_veh_up_asc:
+                new_ramp_tags[vehicle_id] = -1
+
+            self.dic_ramp_tags = new_ramp_tags
+
+            self.dic_ramp_tags, self.dic_rAVrole_changes, r_platoon_types = (
+                self.leader_assigner.assign(ls_ids_asc=ls_r_veh_up_asc,
+                                            tags=self.dic_ramp_tags,
+                                            old_tags=old_ramp_tags,
+                                            role_changes=self.dic_rAVrole_changes,
+                                            enable_proactive_split=enable_proactive_split))
+            self.data_recorder.dic_leader_ptype.update(r_platoon_types) # update platoon types
+
+            self.ls_ramp_lastStep = list(ls_r_veh_up_asc)
+
+            active_vehicle_ids = set(ls_vehid)
+
+            # Remove vehicles that have left the road network.
+            self.dic_ramp_tags = {
+                vehicle_id: tag
+                for vehicle_id, tag in self.dic_ramp_tags.items()
+                if vehicle_id in active_vehicle_ids}
+
+            # Keep only active ramp leaders currently present in the network.
+            self.set_ramp_leader_ids = {
+                vehicle_id
+                for vehicle_id, tag in self.dic_ramp_tags.items()
+                if tag == 1}
+
+            # Share active ramp leaders with DataRecording.
+            self.data_recorder.ls_r_leader_his_asc = sorted(
+                self.set_ramp_leader_ids,
+                key=self.data_recorder._get_vid_digit)
+
+        current_ramp_leaders = [
+            vehicle_id
+            for vehicle_id in ls_r_veh_up_asc
+            if self.dic_ramp_tags.get(vehicle_id) == 1]
+
+        return self.dic_ramp_tags, current_ramp_leaders
 
     def form_platoon3(self, ls_vehid, ls_leader_av, ls_follower_av):
         '''
@@ -227,7 +261,6 @@ class PlatoonBasic:
         ls_follower_av = [id for id in ls_follower_av if id in ls_vehid]
         ls_second_decAV = []
         for id in ls_follower_av:
-            self.traci.vehicle.setColor(id, (255, 0, 0, 255))  # red
             # current_max_ori = self.traci.vehicle.getMaxSpeed(id)
             current_max = self.data_recorder.get_vid_states(id)['max_speed']
             if current_max < self.data_recorder.max_speed:
@@ -235,7 +268,6 @@ class PlatoonBasic:
             if id in self.dec_av: self.dec_av.remove(id)
 
         for leader in ls_leader_av:
-            self.traci.vehicle.setColor(leader, (255, 255, 0, 255))  # yellow
             # platoon space control
             if leader not in self.dec_av: # av in max speed_level2 (22.22)
                 if leader == 'm_av2847':
@@ -719,7 +751,6 @@ class PlatoonBasic:
                 # Save for future recovery
                 self.recover_speed_map[vid] = ori_v
 
-
     def _check_state(self, veh_id):
         """
         Check whether a vehicle is in free-flow mode or in a coupled following mode.
@@ -803,3 +834,24 @@ class PlatoonBasic:
         self.dic_final_platoon_info[step//10] = platoon_string
         # update to dic_avhid_ptype; this is truly pass to merging controller
         self.data_recorder.get_avhid_ptype(m_dpt_type={newest_leader: platoon_string})
+
+    def set_av_role_colors(self, role_tags, vehicle_ids):
+        """
+        Set AV colors according to their assigned platoon roles.
+
+        Role tags:
+            1: AV leader, yellow
+            2: AV follower, red
+
+        HVs and untagged vehicles retain their existing colors.
+        """
+        leader_color = (255, 255, 0, 255) # yellow
+        follower_color = (255, 0, 0, 255) # red
+
+        for vehicle_id in vehicle_ids:
+            tag = role_tags.get(vehicle_id)
+
+            if tag == 1:
+                self.traci.vehicle.setColor(vehicle_id, leader_color)
+            elif tag == 2:
+                self.traci.vehicle.setColor(vehicle_id, follower_color)

@@ -214,54 +214,6 @@ class MergingControlRegular:
         self.data_recorder.dic_platoon_info = self.dic_platoon_info
         return self.dic_platoon_info
 
-    def get_platoon_info2_ori(self):
-        """
-        IMPORTANT: recording platoon information
-        240929update: fixed length of platoon info
-        240622update: add tail_id
-
-        :param
-                ls_r_leader_up:
-                m_dpt_type: scripts lane veh departure schedule; {4: 'AHHHHHHHHH', 31: 'AHHHHHHHHHHH'}
-                r_dpt_type: ramp lane veh departure schedule; {4: 'AHHHHHHHHH', 58: 'AHHHHHHHHHHH'}
-        :return: dic_platoon_info:
-                {'mavh70': [['AHH', 'mhv90'], deque([platoon_length1, platoon_length2], maxlen=10)]}
-        """
-        # get info at this moment
-        dic_vid_groups = self.data_recorder.dic_vid_groups
-
-        ls_m_leader_net = dic_vid_groups['ls_m_leader_net_asc']
-        ls_r_leader_net = dic_vid_groups['ls_r_leader_net']
-        ls_mr_leader_net = ls_m_leader_net + ls_r_leader_net
-
-        for leader in ls_mr_leader_net:
-            platoon_type = self.data_recorder.dic_leader_ptype.get(leader)
-            if platoon_type is None:
-                continue  # jump
-            if leader not in self.dic_platoon_info:
-                # Part A: [platoon_type, tail_id];
-                # Part B: deque(maxlen=10) (fixed length is 10)
-                self.dic_platoon_info[leader] = [[platoon_type, None], deque(maxlen=10)]
-            veh_num = len(platoon_type)
-            # SPECIAL CASE: type 'A', no tail vehicle, no platoon length
-            if veh_num == 1:
-                self.dic_platoon_info[leader][0] = [platoon_type, None]
-                continue
-            tail_id = self._get_tail_id(dic_vid_groups, platoon_type, leader)
-            if tail_id in dic_vid_groups['ls_vehid']:
-                self.dic_platoon_info[leader][0] = [platoon_type, tail_id]
-                if tail_id not in self.data_recorder.ls_tail_ids:
-                    self.data_recorder.ls_tail_ids.append(tail_id) # ls_tail_ids (purpose? record tail id then record tail arrival time)
-                # dic_head_states = self.data_recorder.get_vid_states(leader)
-                # dic_tail_states = self.data_recorder.get_vid_states(tail_id)
-                # pos_head = dic_head_states['pos']
-                # pos_tail = dic_tail_states['pos']
-                # platoon_length = pos_head-pos_tail
-                # record length
-                # self.dic_platoon_info[leader][1].append(platoon_length)
-        self.data_recorder.dic_platoon_info = self.dic_platoon_info
-        return self.dic_platoon_info
-
     def find_rm_leader_map(self, step):
         """
         Decide the action_leader (r_leader or m_leader) to take action
@@ -277,11 +229,12 @@ class MergingControlRegular:
         c_ts = round(step / 10 + 0.1, 1)
 
         dic_vid_groups = self.data_recorder.dic_vid_groups
-        ls_r_leader_up = dic_vid_groups['ls_r_leader_up']
+        ls_r_leader_up_asc = dic_vid_groups['ls_r_leader_up_asc']
 
         # rav/mav information Before merging # mavhb => m_leader_up
         dic_mplatoon_et_valid = {m_leader: ls_ts for m_leader, ls_ts in self.dic_mplatoon_et.items() if ls_ts[2] > c_ts}
-        dic_rplatoon_et_valid = {r_leader: self.dic_rplatoon_et[r_leader] for r_leader in ls_r_leader_up if r_leader in self.dic_rplatoon_et}
+        dic_rplatoon_et_valid = {r_leader: self.dic_rplatoon_et[r_leader]
+                                 for r_leader in ls_r_leader_up_asc if r_leader in self.dic_rplatoon_et}
         dic_mplatoon_tail_et = {m_leader: ls_ts[2] for m_leader, ls_ts in dic_mplatoon_et_valid.items()}
 
         for r_leader in dic_rplatoon_et_valid.keys():

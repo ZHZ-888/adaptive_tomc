@@ -77,13 +77,6 @@ def loop(traci, st, data_recorder,
     step = 0
     # scripts loop
     while step < st * 10:
-        # checkpoint
-        if step > 100 * 10:
-            dic_vid_groups = data_recorder.dic_vid_groups
-            ls_m_leader_net_asc = dic_vid_groups['ls_m_leader_net_asc']
-            ls_r_leader_net = dic_vid_groups['ls_r_leader_net']
-            ls_r_leader_net_asc = sorted(ls_r_leader_net, key=lambda x: int(''.join(filter(str.isdigit, x))))
-            pass
         traci.simulationStep()  # start simulation
         # Vehicle generation without Heterogeneous
         r_autoFollow_p=1

@@ -11,7 +11,6 @@ class AvRmController:
         self.traci = traci
         self.data_recorder = instance_dr
         self.merge_regular = merge_regular
-        self.ml = ml # multi-lane?
 
         self.dic_id_speed = self.data_recorder.dic_speed
         self.timing = False
@@ -32,7 +31,6 @@ class AvRmController:
         self.dic_desire_reach_ts = {} # drt => desire reaching timestamp
         # m_leader and its action parameters; self.dic_mavh_actionP => self.dic_m_leader_action_params
         self.dic_m_leader_action_params = {'':[]}
-        self.ls_r_leader_pre_stop = [] # list of ramp leader before stop point
         self.ls_r_proper = [] # list of ramp veh before acc
         self.dic_max_interval = {} # {m_leader: max_interval}
 
@@ -51,12 +49,10 @@ class AvRmController:
         self.jam_mode_start_ts = None
         self.first_ramp_stop_ts = None
         self.delta_t = None
-        self.cooldown_dur = 30
         self.last_m_leader = None
 
+        self.cooldown_dur = 30
         self.buffer = 1.5 # platoon-to-platoon time buffer, 1.5 s
-
-
         self.speed_level3 = 25
         # the time needed for ramp AV leader moving from stop point to the merging section (weaving section)
         self.r_leader_acc_dur = 11.5 # 9.3; 11.5
@@ -69,13 +65,12 @@ class AvRmController:
              12: 21.81, 13: 23.49, 14: 25.17, 15: 26.85, 16: 28.53,
              17: 30.21, 18: 31.89, 19: 33.57, 20: 35.25}
 
-
-
     def jam_control(self, step, dic_platoon_info, ls_m_leader_up_asc,
                     ls_m_veh_up_asc, dic_mplatoon_et, dic_vid_groups,
                     ls_r_dep_times, mpc_interval, delta_t, pf):
-        self.jam_mode_start_ts = round(step/10 + 0.1, 1) if self.jam_mode_start_ts is None else self.jam_mode_start_ts
 
+        self.jam_mode_start_ts = round(step/10 + 0.1, 1) \
+            if self.jam_mode_start_ts is None else self.jam_mode_start_ts
         disturb = self.loss_rate != 0
         self.dic_mplatoon_et = dic_mplatoon_et
         self.pf = pf
@@ -143,22 +138,25 @@ class AvRmController:
         '''
         get ls of ramp leaders before stop point
             (multi-lane: first 120 meters on ramp; single lane: first 203.5 meters on ramp)
-        ls_r_leader_up (ls_ravhb) => vehicle on RAMP_PROPER (curved / straight approach)
+        ls_r_leader_up_asc => vehicle on RAMP_PROPER (curved / straight approach)
         :param:
-            ls_r_leader_up: list of ramp leaders before merging, descending order
+            ls_r_leader_up_asc: list of ramp leaders before merging, asc order
         :return:
-            ls_r_leader_pre_stop (ls_ravhb_acc)//
-            ls_ravhb_acc_r//['ravh1050', 'ravh920', 'ravh680', 'ravh440', 'ravh200', 'ravh70']
+            ls_r_leader_pre_stop (ls_ravhb_acc) // ['ravh70', 'ravh200']
+            ls_r_leader_fixed // ['ravh70']
         '''
-        ls_r_leader_up = self.dic_vid_groups["ls_r_leader_up"]  # ['ravh200', 'ravh70']
-        self.ls_r_leader_pre_stop = []
+        ls_r_leader_up_asc = self.dic_vid_groups["ls_r_leader_up_asc"]  # ['ravh70', 'ravh200', 'ravh440']
+        ls_r_leader_pre_stop = []
 
-        for id in ls_r_leader_up[::-1]:
-            pos = self.data_recorder.dic_pos[id]
+        for vid in ls_r_leader_up_asc:
+            pos = self.data_recorder.dic_pos[vid] # pos: distance to the start of lane
             if pos < self.stop_pos:
-                self.ls_r_leader_pre_stop.append(id)
+                ls_r_leader_pre_stop.append(vid)
 
-        return self.ls_r_leader_pre_stop
+        # Filter out the last leader because it belongs to the open platoon
+        ls_r_leader_fixed = ls_r_leader_pre_stop[:-1] if len(ls_r_leader_pre_stop) > 1 else ls_r_leader_pre_stop
+
+        return ls_r_leader_fixed
 
     def _get_r_proper(self): # _get_rvb_acc => _get_r_proper(self)
         '''
@@ -167,13 +165,7 @@ class AvRmController:
         '''
         ls_r_veh_up = self.dic_vid_groups["ls_r_veh_up"]
         self.ls_r_proper = []
-        if self.ml:
-            self.ls_r_proper = ls_r_veh_up
-            return self.ls_r_proper
-        for id in ls_r_veh_up[::-1]:
-            pos = self.data_recorder.dic_pos[id]
-            if pos < self.stop_pos:
-                self.ls_r_proper.append(id)
+        self.ls_r_proper = ls_r_veh_up
         return self.ls_r_proper
 
     def _stop_ramp_fleet3(self, dic_platoon_info):
@@ -268,7 +260,8 @@ class AvRmController:
                 re_t2 = self.dic_mplatoon_et[leader_id][2]-c_ts
         return re_t2, dis
 
-    def _find_timing6(self, step, m_leader, action_m_leader, max_interval, rp_pass_time):
+    def _find_timing6(self, step, m_leader, action_m_leader,
+                      max_interval, rp_pass_time):
         """
         find the resume timing for ramp leader
         :param
@@ -283,7 +276,7 @@ class AvRmController:
         :return:
         """
         c_ts = round(step/10 + 0.1, 1)
-        if action_m_leader == 'mb_av5634':
+        if action_m_leader in ['r_av20', 'r_av297']:
             pass
 
         ls_m_veh_up_asc = self.dic_vid_groups.get('ls_m_veh_up_asc', None)  # ['mavh680', 'mhv690', 'mhv700', ] all veh on inflow_highway
@@ -337,7 +330,6 @@ class AvRmController:
                     #     self.ls_skip_stop = []
                     return self.timing
 
-
         # S2: Most common situation without m_leader action
         if self.stop_state and len(ls_m_veh_up_asc) > 0 and m_leader and self.m_leader_acting is False:
             pv_info = self.traci.vehicle.getLeader(m_leader, self.length_mcz)
@@ -369,12 +361,11 @@ class AvRmController:
                     return self.timing
         return self.timing
 
-    def _get_max_interval_upper(self, step, ml, ls_m_leader_up_asc, ls_m_veh_up_asc):
+    def _get_max_interval_upper(self, step,
+                                ls_m_leader_up_asc, ls_m_veh_up_asc):
         '''get the max interval on the mainline, call different function according to ml or not'''
-        if ml:
-            return self._get_max_interval_ml(step, ls_m_leader_up_asc, ls_m_veh_up_asc)
-        else:
-            return self._get_max_interval_single(step, ls_m_leader_up_asc, ls_m_veh_up_asc)
+        return self._get_max_interval_ml(step, ls_m_leader_up_asc, ls_m_veh_up_asc)
+
 
     def _get_max_interval_single(self, step, ls_m_leader_up_asc, ls_m_veh_up_asc):
         '''
@@ -608,11 +599,12 @@ class AvRmController:
                 if speed < 0.8:
                     final_rp_type += rp_type
                     final_rp_number = len(final_rp_type)
-                    cum_rp_pass_time = self.dic_platoon_merge_time_by_size.get(final_rp_number, float('inf'))  # accumulate ramp passing time
+                    # accumulate ramp passing time
+                    cum_rp_pass_time = self.dic_platoon_merge_time_by_size.get(final_rp_number, float('inf'))
                     if cum_rp_pass_time < max_interval + self.delta_t:
                         ls_pass_rid.append(rp_leader)
                         if rp_leader not in self.ls_skip_stop and i != 0:
-                            if rp_leader == 'ravh3720' or rp_leader == 'ravh2610':
+                            if rp_leader == 'r_av20' or rp_leader == 'r_av297':
                                 pass
                             self.ls_skip_stop.append(rp_leader)
                         final_rp_pass_time = cum_rp_pass_time # final ramp passing time
@@ -820,23 +812,25 @@ class AvRmController:
         self._check_resume_state4(dic_platoon_info) # 241003update
         # Get Ramp Platoon travel Time (from stop to pass intersection)
         dic_r_platoon_travel_time = self._get_ramp_platoon_merge_duration(dic_platoon_info)
-        dic_max_interval = self._get_max_interval_upper(step, self.ml, ls_m_leader_up_asc, ls_m_veh_up_asc)
-        m_leader, max_interval, final_rp_pass_time = self._compare3(dic_max_interval, dic_r_platoon_travel_time)
+        dic_max_interval = self._get_max_interval_upper(step, ls_m_leader_up_asc, ls_m_veh_up_asc)
+        m_leader, max_interval, final_rp_pass_time = self._compare3(dic_max_interval,
+                                                                    dic_r_platoon_travel_time)
         # decide if m_leader need to take action
-        dic_m_leader_action_params = self._get_m_leader_action(step, first_r_leader, final_rp_pass_time,
+        dic_m_leader_action_params = self._get_m_leader_action(step, first_r_leader,
+                                                               final_rp_pass_time,
                                                                m_leader, max_interval,
                                                                mpc_interval)
         action_m_leader = self._apply_m_leader_control(step, dic_m_leader_action_params)
-        timing = self._find_timing6(step, m_leader, action_m_leader, max_interval, final_rp_pass_time)
-        if timing:
-            pass
+        timing = self._find_timing6(step, m_leader, action_m_leader,
+                                    max_interval, final_rp_pass_time)
         ls_r_proper = self._get_r_proper()
         # record ramp queue length
         queue_log = self.data_recorder.get_queue_length(step, ls_r_proper, ls_r_dep_times)
         self._restart_ramp_fleet(step, first_r_leader, timing) # Resume r_leader
         return queue_log
 
-    def _jam_control_disturbed(self, step, dic_platoon_info, ls_m_leader_up_asc, ls_m_veh_up_asc,
+    def _jam_control_disturbed(self, step, dic_platoon_info,
+                               ls_m_leader_up_asc, ls_m_veh_up_asc,
                                dic_vid_groups, ls_r_dep_times, mpc_interval):
         '''
         add v2x disturbance
@@ -863,12 +857,14 @@ class AvRmController:
         self._check_resume_state4(dic_platoon_info) # 241003update
         # Get ramp fleet travel time (from stop to pass intersection)
         dic_r_platoon_travel_time = self._get_ramp_platoon_merge_duration(dic_platoon_info)
-        dic_max_interval = self._get_max_interval_upper(step, self.ml, ls_m_leader_up_asc, ls_m_veh_up_asc)
-        m_leader, max_interval, final_rp_pass_time = self._compare3(dic_max_interval, dic_r_platoon_travel_time)
+        dic_max_interval = self._get_max_interval_upper(step, self.ml,
+                                                        ls_m_leader_up_asc, ls_m_veh_up_asc)
+        m_leader, max_interval, final_rp_pass_time = self._compare3(dic_max_interval,
+                                                                    dic_r_platoon_travel_time)
 
         # m_leader take action; m_leader_acting = True/False
-        action_params = self._get_m_leader_action(step, first_r_leader, final_rp_pass_time, m_leader,
-                                                  max_interval, mpc_interval)  # MPC interval = 6s
+        action_params = self._get_m_leader_action(step, first_r_leader, final_rp_pass_time,
+                                                  m_leader, max_interval, mpc_interval)  # MPC interval = 6s
         if action_params and any(action_params.values()) and action_params != self.last_action_params:
             self.action_buffer.push(step, action_params)
         action_pay_load = self.action_buffer.maybe_release(step)
@@ -887,116 +883,3 @@ class AvRmController:
         self._restart_ramp_fleet(step, first_r_leader, timing)
         self.last_action_params = action_params
         return queue_log
-
-
-class ShiftMode:
-    def __init__(self, traci, instance_dr, av_p):
-        self.regular_mode = True
-        self.jam_mode = False
-        self.traci = traci
-        self.data_recorder = instance_dr
-        self.av_p = av_p
-
-        self.length_ih = self.traci.lane.getLength('inflow_highway_0')
-        self.length_ms0 = self.traci.lane.getLength('ms_0')
-
-        self.ms1_slow_ts = None
-        self.r_leader_past_half_acc_ts = None
-        self.mode_trigger_window = 5.0
-
-    def determine_mode_low_sensor_reliance(self, ls_r_leader_msA_asc,
-                                           ls_msB_av_asc):
-        '''
-        Determine regular/jam mode with low-sensor inputs.
-
-        Jam mode is entered when both conditions become true within the
-        configured trigger window:
-        1. Any AV on ms_1 drops below v_jam.
-        2. The farthest downstream ramp leader on ms_0 reaches the back half
-           of ms_0.
-
-        Jam mode is recovered when the ramp queue has cleared and AV speeds
-        on ms_0 and ms_1 are both above v_jam.
-
-        Parameters
-        ----------
-        ls_m_leader_up_asc: list of leader on inflow_highway_0
-        ls_r_leader_msA_asc: list of ramp leader on ms_0 (or ms)
-        ls_msB_av_asc: list of av on ms_1 (or ms)
-
-        Returns
-        -------
-
-        '''
-        v_jam = 5.0
-
-        ms1_slow = any(
-            self.data_recorder.dic_speed.get(vid, float("inf")) < v_jam
-            for vid in ls_msB_av_asc
-        )
-
-        # Ramp leader closest to the merge point.
-        # ls_r_leader_msA_asc is sorted by position, so the first element is the farthest downstream.
-        r_leader_past_half_acc = False
-        if ls_r_leader_msA_asc:
-            farthest_r_leader = ls_r_leader_msA_asc[0]
-            farthest_pos = self.data_recorder.dic_pos.get(farthest_r_leader)
-            if farthest_pos is not None:
-                r_leader_past_half_acc = farthest_pos >= self.length_ms0 / 2
-
-        now = self.traci.simulation.getTime()
-        if ms1_slow:
-            self.ms1_slow_ts = now
-        if r_leader_past_half_acc:
-            self.r_leader_past_half_acc_ts = now
-
-        ms1_slow_recent = (
-            self.ms1_slow_ts is not None
-            and now - self.ms1_slow_ts <= self.mode_trigger_window
-        )
-        r_leader_past_half_recent = (
-            self.r_leader_past_half_acc_ts is not None
-            and now - self.r_leader_past_half_acc_ts <= self.mode_trigger_window
-        )
-
-        ls_veh_c1_0_0 = self.traci.lane.getLastStepVehicleIDs(':c1_0_0')
-        ls_r_leader_up = self.data_recorder.dic_vid_groups['ls_r_leader_up']
-        num_leader_ramp_proper = len(ls_r_leader_up)
-        num_leader_c1_0_0 = sum(1 for vid in ls_veh_c1_0_0 if 'ravh' in vid)
-        num_leader_msA = len(ls_r_leader_msA_asc)
-        num_leader_msB = sum(1 for vid in ls_msB_av_asc if 'ravh' in vid)
-        num_leader_ramp_ms = num_leader_c1_0_0 + num_leader_msA + num_leader_msB + num_leader_ramp_proper
-
-        ms0_av_speeds = [
-            self.data_recorder.dic_speed[vid]
-            for vid in ls_r_leader_msA_asc
-        ]
-        ms1_av_speeds = [
-            self.data_recorder.dic_speed[vid]
-            for vid in ls_msB_av_asc
-            if vid in self.data_recorder.dic_speed
-        ]
-
-        if self.regular_mode and ms1_slow_recent and r_leader_past_half_recent:
-            self.regular_mode = False
-            self.jam_mode = True
-
-        ls_ihA_av_asc = self.data_recorder.dic_vid_groups['ls_ihA_av_asc']
-        mainline_clear = (
-                len(ls_ihA_av_asc) == 0
-                and not any(vid.startswith("m") for vid in ls_msB_av_asc)
-        )
-
-        normal_recover = (
-                num_leader_ramp_ms < 1
-                and all(speed > v_jam for speed in ms0_av_speeds)
-                and all(speed > v_jam for speed in ms1_av_speeds)
-        )
-
-        recover_condition = normal_recover or mainline_clear
-
-        if self.jam_mode and recover_condition:
-            self.regular_mode = True
-            self.jam_mode = False
-
-        return self.regular_mode, self.jam_mode

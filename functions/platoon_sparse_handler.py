@@ -84,7 +84,7 @@ class PlatoonSparseHandler:
             first_free_follower = None
             for follower in ls_followers:
                 if (follower in dic_id_preState and dic_id_preState[follower] == 0):
-                        # and leader not in self.dic_AVroleChange):  # temporary measure, future multiple step prediction
+                        # and leader not in self.dic_mAVrole_changes):  # temporary measure, future multiple step prediction
                     # tag as sparse platoon
                     first_free_follower = follower
                     dic_sparse_platoon[leader] = first_free_follower
@@ -124,7 +124,7 @@ class PlatoonSparseHandler:
             addressed_sparse_leaders.add(sparse_leader)
             # free_promote
             self.p_basic.dic_tags[promote_av] = 1
-            self.p_basic.dic_AVroleChange[promote_av] = 'free_promote'
+            self.p_basic.dic_mAVrole_changes[promote_av] = 'free_promote'
             self.free_triggered = True
             # Remove prediction state since it's now a leader
             self.p_basic.dic_id_preState.pop(promote_av, None)

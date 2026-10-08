@@ -471,7 +471,7 @@ class CollectAgentHandler:
             self.dic_collect_insertedAV[selected_av] = 'free_insert'
             # record free insert AV and tag it
             self.p_basic.dic_tags[selected_av] = 1 # tag as leader
-            self.p_basic.dic_AVroleChange[selected_av] = 'free_insert'
+            self.p_basic.dic_mAVrole_changes[selected_av] = 'free_insert'
             print(f'[FreeInsert] free_inserted_AV: {self.dic_collect_insertedAV}')
 
         except self.traci.TraCIException:

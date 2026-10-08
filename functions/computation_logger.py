@@ -111,7 +111,8 @@ class ComputationLogger:
             yield
 
 
-def measure_cycle(comp_logger, *, step, interval, module, sim_time_s, phase="total", **meta):
+def measure_cycle(comp_logger, *, step, interval,
+                  module, sim_time_s, phase="total", **meta):
     """Return a measurement context for a control cycle, or a no-op context."""
     if comp_logger is None or interval <= 0 or step % interval != 0:
         return nullcontext()

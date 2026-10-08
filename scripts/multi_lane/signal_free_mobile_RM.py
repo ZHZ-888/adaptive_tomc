@@ -210,7 +210,7 @@ def loop(traci, st, data_recorder,
                 sim_time_s=step * sim_step,
         ):
             (tp, queue_log, ts_first_jam,
-             ts_first_back_to_regular) = merging_controller.step(st, step, r_dpt_type)
+             ts_first_back_to_regular) = merging_controller.step(st, step)
 
         # accident_simulation.sudden_accident(traci, step, data_recorder)
 
@@ -224,7 +224,7 @@ def loop(traci, st, data_recorder,
         traffic_calibrator.update()
         data_recorder.record_multi_lane_info()
         formation_controller.step(st, step, lc)
-        merging_controller.step(st, step, r_dpt_type)
+        merging_controller.step(st, step)
         step += 1
 
     del merging_controller.speed_log[st*10+1:]
@@ -369,8 +369,8 @@ if __name__ == '__main__':
     (dic_follower_state, his_dic_platoon_size, dic_id_features,
      tp, speed_log, queue_log, output_file_path,
      se_result, ce_result, ts_first_jam, ts_first_back_to_regular) = mpgc_main(
-        av_p = 0.1, # 0.1
-        r_fr = 800, # 1300
+        av_p = 0.2, # 0.1
+        r_fr = 1200, # 1300
         m_fr = 1500, # 1500
         seed = 2, # 2 analysis
         loss_rate = 0, # 0.15
