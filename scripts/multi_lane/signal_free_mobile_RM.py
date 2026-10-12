@@ -197,8 +197,7 @@ def loop(traci, st, data_recorder,
                 step=step,
                 interval=10,
                 module="PF",
-                sim_time_s=step * sim_step,
-        ):
+                sim_time_s=step * sim_step):
             (dic_follower_state, his_dic_platoon_size,
              dic_id_features) = formation_controller.step(st, step, lc)
 
@@ -207,8 +206,7 @@ def loop(traci, st, data_recorder,
                 step=step,
                 interval=merging_controller.mpc_interval,
                 module="MC",
-                sim_time_s=step * sim_step,
-        ):
+                sim_time_s=step * sim_step):
             (tp, queue_log, ts_first_jam,
              ts_first_back_to_regular) = merging_controller.step(st, step)
 
