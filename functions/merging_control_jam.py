@@ -1,12 +1,10 @@
-# av_based_rm.py
-"""
-a av based signal free ramp metering controller
-"""
+# merging_control_jam.py;
+# ORIGINAL core for AV-based ramp metering
 
 from functions import print_control as prc
 from functions import v2x_disturbance as v2x
 
-class AvRmController:
+class MergingControlJam:
     def __init__(self, traci, instance_dr, merge_regular, loss_rate, comm_rng=None):
         self.traci = traci
         self.data_recorder = instance_dr
@@ -33,6 +31,7 @@ class AvRmController:
         self.dic_m_leader_action_params = {'':[]}
         self.ls_r_proper = [] # list of ramp veh before acc
         self.dic_max_interval = {} # {m_leader: max_interval}
+        self.dic_mainline_gaps = {} # {m_leader: gap_seconds}, None for the rear window
 
         self.loss_rate = loss_rate
         self.action_buffer = v2x.UpdateDelayBuffer(loss_rate=self.loss_rate, rng=comm_rng)
@@ -51,37 +50,47 @@ class AvRmController:
         self.delta_t = None
         self.last_m_leader = None
 
-        self.cooldown_dur = 30
+        self.cooldown_dur = 15 # 30
         self.buffer = 1.5 # platoon-to-platoon time buffer, 1.5 s
+        self.stop_pos = 120
         self.speed_level3 = 25
         # the time needed for ramp AV leader moving from stop point to the merging section (weaving section)
         self.r_leader_acc_dur = 11.5 # 9.3; 11.5
-        self.stop_pos = 120
         # Mapping from platoon size to total merge completion time (from leader start to tail completing merging)
         # after 13 may not that accurate, but only in case max interval is very large, then allow the ramp combined number exceeds 12
+        # self.dic_platoon_merge_time_by_size = \
+        #     {1: 2.32, 2: 4.41, 3: 6.30, 4: 8.20, 5: 9.86, 6: 11.70,
+        #      7: 13.50, 8: 15.12, 9: 16.85, 10: 18.40, 11: 20.12,
+        #      12: 21.81, 13: 23.49, 14: 25.17, 15: 26.85, 16: 28.53,
+        #      17: 30.21, 18: 31.89, 19: 33.57, 20: 35.25}
+
+    def _get_R_MTW_duration(self, n):
+        '''
+        Get the estimated Ramp Platoon MTW (merging time window) duration for size n.
+        From this table (measured data)
         self.dic_platoon_merge_time_by_size = \
             {1: 2.32, 2: 4.41, 3: 6.30, 4: 8.20, 5: 9.86, 6: 11.70,
              7: 13.50, 8: 15.12, 9: 16.85, 10: 18.40, 11: 20.12,
-             12: 21.81, 13: 23.49, 14: 25.17, 15: 26.85, 16: 28.53,
-             17: 30.21, 18: 31.89, 19: 33.57, 20: 35.25}
+             12: 21.81, ...}
+        '''
+        return 1.753 * n + 0.989
 
-    def jam_control(self, step, dic_platoon_info, ls_m_leader_up_asc,
-                    ls_m_veh_up_asc, dic_mplatoon_et, dic_vid_groups,
+    def jam_control(self, step, dic_platoon_info, dic_mplatoon_et, dic_vid_groups,
                     ls_r_dep_times, mpc_interval, delta_t, pf):
 
         self.jam_mode_start_ts = round(step/10 + 0.1, 1) \
             if self.jam_mode_start_ts is None else self.jam_mode_start_ts
-        disturb = self.loss_rate != 0
         self.dic_mplatoon_et = dic_mplatoon_et
         self.pf = pf
         self.delta_t = delta_t
+        disturb = self.loss_rate != 0
         if disturb:
             return self._jam_control_disturbed(
-                step, dic_platoon_info, ls_m_leader_up_asc, ls_m_veh_up_asc,
+                step, dic_platoon_info,
                 dic_vid_groups, ls_r_dep_times, mpc_interval)
         else:
             return self._jam_control_clean(
-                step, dic_platoon_info, ls_m_leader_up_asc, ls_m_veh_up_asc,
+                step, dic_platoon_info,
                 dic_vid_groups, ls_r_dep_times, mpc_interval)
 
     def _monitor_ramp_leader_stop(self, leader_id):
@@ -134,7 +143,7 @@ class AvRmController:
                 self.rp_type_resume_completed[leader] = [platoon_type, resume_time, completed_ts]  # Record the platoon type, resume time, and completion time
         return self.rp_type_resume_completed
 
-    def _get_r_leader_pre_stop(self): # _get_ravhb_acc()
+    def _get_r_leader_pre_stop(self):
         '''
         get ls of ramp leaders before stop point
             (multi-lane: first 120 meters on ramp; single lane: first 203.5 meters on ramp)
@@ -168,17 +177,15 @@ class AvRmController:
         self.ls_r_proper = ls_r_veh_up
         return self.ls_r_proper
 
-    def _stop_ramp_fleet3(self, dic_platoon_info):
+    def _stop_ramp_fleet3(self):
         '''
         stop the ramp fleet closest to the weaving section
         :return:
         '''
         ls_r_leader_pre_stop = self._get_r_leader_pre_stop()
-        first_r_leader_proper = ls_r_leader_pre_stop[0] if ls_r_leader_pre_stop else None # first ramp leader (on ramp_proper) before acc space
+        # first ramp leader (on ramp_proper) before acc space
+        first_r_leader_proper = ls_r_leader_pre_stop[0] if ls_r_leader_pre_stop else None
         # only dis < 203
-        if first_r_leader_proper == 'ravh5930':
-            pass
-
         if (self.r_leader_stop is None
                 and first_r_leader_proper is not None
                 and first_r_leader_proper not in self.ls_skip_stop
@@ -193,15 +200,14 @@ class AvRmController:
 
         # Monitor when the vehicle fully stops (speed becomes 0)
         self._monitor_ramp_leader_stop(self.r_leader_stop) if self.r_leader_stop is not None else None
-        # rp_resume_completed = self._monitor_ramp_platoon_tail_completed(dic_platoon_info)
         return self.r_leader_stop
 
     def _check_resume_state4(self, dic_platoon_info):
         '''
         default: False
-        notation: sometimes newest stop_r_leader already gone, however the next r_leader still in the process of stop
-        between new stop and non-stop there is a gap where latest stop_r_leader out of ramp_proper (control area)
-        under this condition, it still under resume_state = True
+        PS: sometimes the just stopped r_leader had already released, but the next r_leader in the process of stop
+        between new stop and non-stop there is a gap where the latest stop_r_leader out of ramp_proper (control area)
+        under this condition, it's still in resume_state = True
         :param dic_platoon_info:
         :return: resume_state
         '''
@@ -268,8 +274,8 @@ class AvRmController:
                 ls_m_veh_up_asc: all veh on mainline before merging, ascending order
                 ls_m_speed_up: speed of above vehicles
 
-                m_leader: choosing m_leader
-                action_m_leader: ????
+                m_leader: mainline leader behind the selected gap
+                action_m_leader: mainline leader receiving a control action
                 max_interval: biggest time gap between mainline platoons
                 rp_pass_time: ramp platoons passing time
 
@@ -280,7 +286,6 @@ class AvRmController:
             pass
 
         ls_m_veh_up_asc = self.dic_vid_groups.get('ls_m_veh_up_asc', None)  # ['mavh680', 'mhv690', 'mhv700', ] all veh on inflow_highway
-        ls_m_speed_up = [self.dic_id_speed[id] for id in ls_m_veh_up_asc] if ls_m_veh_up_asc else None  # velocity of every veh
         self.timing = False
         # 10-s cooldown; in the first 10-s forbid to resume ramp stopped platoon
         if (self.stop_state and self.first_ramp_stop_ts is not None):
@@ -361,17 +366,10 @@ class AvRmController:
                     return self.timing
         return self.timing
 
-    def _get_max_interval_upper(self, step,
-                                ls_m_leader_up_asc, ls_m_veh_up_asc):
-        '''get the max interval on the mainline, call different function according to ml or not'''
-        return self._get_max_interval_ml(step, ls_m_leader_up_asc, ls_m_veh_up_asc)
-
-
-    def _get_max_interval_single(self, step, ls_m_leader_up_asc, ls_m_veh_up_asc):
+    def _get_mainline_gaps(self, step,
+                           ls_m_leader_up_asc, ls_m_veh_up_asc):
         '''
-        get the max interval on the mainline
-        241203 updated, consider the acc time
-        112624 updated, use prediction model
+        get gaps between mainline platoons
 
         :param ls_m_leader_up_asc: min => max
                ls_m_veh_up_asc: ['mhv693', 'mhv765', 'mhv784', 'mhv795', 'mhv811', 'mav839']
@@ -380,81 +378,90 @@ class AvRmController:
                self.r_leader_acc_dur: the time needed for r_leader moving from stop point to the merging section
                dic_mplatoon_et: {m_leader:[platoon_type, ts_head, ts_tail, c_ts]}
                thw: time headway window
-        :return
-
+        :return dic_mainline_gaps: {m_leader: [gap_seconds]} for all windows.
+                None identifies the window behind the last mainline vehicle.
         '''
-        c_ts = self.traci.simulation.getTime()
+        if step % 10 != 0:
+            return self.dic_mainline_gaps
+        c_ts = round(step / 10 + 0.1, 1)
 
-        # 1. no vehicles on the merging section
+        pfz_vehicles = self.dic_vid_groups['ls_pf_veh_asc']
+        pfz_leaders = self.dic_vid_groups['ls_pf_leader_asc']
+
+        first_pfz_vehicle = pfz_vehicles[0] if pfz_vehicles else None
+        first_pfz_is_leader = (
+                first_pfz_vehicle is not None
+                and bool(pfz_leaders)
+                and first_pfz_vehicle == pfz_leaders[0])
+
+        headway_differences = {}
+
+        # 1. no vehicles on the MCZ
         if len(ls_m_veh_up_asc) == 0:
-            m_leader = None
-            max_thw = self.length_mcz / self.max_speed - self.r_leader_acc_dur  # the acc time(consider)
-        # 2. no leader on the merging section, but there are followers
+            thw = self.length_mcz / self.speed_level3 - self.r_leader_acc_dur
+            if not pfz_vehicles:
+                thw = ((self.data_recorder.length_pfz + self.length_mcz)
+                       / self.speed_level3 - self.r_leader_acc_dur)
+            elif (first_pfz_is_leader
+                  and self.merge_regular.first_pfz_leader == first_pfz_vehicle
+                  and self.merge_regular.first_pfz_leader_arrival_ts is not None):
+                thw = (self.merge_regular.first_pfz_leader_arrival_ts
+                       - c_ts - self.r_leader_acc_dur)
+            headway_differences[None] = thw
+        # 2. no leader on the merging control section, but there are followers
         elif len(ls_m_leader_up_asc) == 0:
-            m_leader = None
-            max_thw = 0
-        # 3. both leaders and followers exist
+            headway_differences[None] = 0
+        # 3. both leaders and followers exists
         else:
             # Dictionary to store the time differences for each head vehicle
-            headway_differences = {}
             first_m_leader = ls_m_leader_up_asc[0]
             first_veh = ls_m_veh_up_asc[0]
 
-            # 3.1 between the last platoon and the start point inflow_highway
-            last_mvb = ls_m_veh_up_asc[-1]
-            veh_info = self.data_recorder.get_vid_states(last_mvb)
+            # 3.1 between the last platoon tail and the first pfz-leader (if exists)
+            last_mcz_leader = ls_m_leader_up_asc[-1]
+            last_mcz_platoon_tail_ts = self.dic_mplatoon_et[last_mcz_leader][2]
+            gap_start = last_mcz_platoon_tail_ts
+            gap_end = self.merge_regular.first_pfz_leader_arrival_ts
+            leader = pfz_leaders[0] if pfz_leaders else None
+            if gap_end is None:
+                gap_end = self.length_mcz / self.speed_level3 + c_ts
+                leader = None
+            thw = gap_end - max(gap_start, c_ts + self.r_leader_acc_dur)
+            if thw > 0:
+                headway_differences[leader] = thw
 
-            dis = veh_info['dis']
-            # (self.length_mcz - dis) => the distance between last veh and start point of merging control section
-            thw = (self.length_mcz - dis) / self.max_speed
-            headway_differences[None] = thw
-
-            # 3.2 between the first platoon and the weaving section
+            # 3.2 between the first platoon leader and the MS (Merging section) entry
             if first_m_leader == first_veh:
                 dis = self.data_recorder.get_vid_states(first_m_leader)['dis']
-                first_veh_info = self.dic_mplatoon_et.get(first_m_leader, [None, None])  # first vehicle arrival time
-                arrive_time = first_veh_info[1]
+                # dic_mplatoon_et: {m_leader:[platoon_type, ts_head, ts_tail, c_ts]}
+                first_veh_info = self.dic_mplatoon_et.get(first_m_leader, [None, None])
+                arrive_time = first_veh_info[1] # ts_head
                 # Calculate real headway using a ternary expression
-                real_headway = dis / self.max_speed - self.r_leader_acc_dur if arrive_time is None \
-                    else arrive_time - c_ts - self.r_leader_acc_dur
-                headway_differences[first_m_leader] = real_headway
+                real_headway = dis / self.speed_level3 if arrive_time is None \
+                    else arrive_time - c_ts
+                headway_differences[first_m_leader] = real_headway - self.r_leader_acc_dur
 
             # 3.3 between platoons
-            for i, head_id in enumerate(ls_m_leader_up_asc):
-                if head_id == 'mbav11196':
-                    pass
-                if head_id not in self.dic_mplatoon_et:
-                    headway_differences[head_id] = 0
-                elif i == 0 and head_id != first_veh:
-                    ts_head_current = self.dic_mplatoon_et[head_id][1]
-                    keys = list(self.dic_mplatoon_et.keys())
-                    this_index = keys.index(head_id)
-                    previous_index = this_index - 1
-                    previous_m_leader = keys[previous_index]
-                    ts_tail_previous = self.dic_mplatoon_et[previous_m_leader][2]
-                    headway_differences[head_id] = ts_head_current - ts_tail_previous
-                elif i > 0:
-                    # Get the arrival time of the current head vehicle
-                    ts_head_current = self.dic_mplatoon_et[head_id][1]
-                    # Get the arrival time of the preceding vehicle's tail
-                    if ls_m_leader_up_asc[i-1] == 'mbav11196':
-                        pass
-                    ts_tail_previous = self.dic_mplatoon_et[ls_m_leader_up_asc[i - 1]][2]
-                    # Get the remaining time of the preceding vehicle
-                    ts_tail_remaining = ts_tail_previous - c_ts
-                    if ts_tail_remaining >= self.r_leader_acc_dur:
-                        # Calculate the time difference
-                        headway_differences[head_id] = ts_head_current - ts_tail_previous
+            for i, leader in enumerate(ls_m_leader_up_asc):
+                if leader == first_m_leader and first_m_leader == first_veh:
+                    # This gap has already calculated in 3.2.
+                    continue
+                if leader not in self.dic_mplatoon_et:
+                    headway_differences[leader] = 0
+                elif i >= 0:
+                    ts_head_current = self.dic_mplatoon_et[leader][1]
+                    ts_prev_tail = self._get_prev_platoon_tail_at_ts(c_ts, leader)
+                    ts_front_remaining = ts_prev_tail - c_ts
+                    if ts_front_remaining >= self.r_leader_acc_dur:
+                        headway_differences[leader] = ts_head_current - ts_prev_tail
                     else:
-                        headway_differences[head_id] = ts_head_current - ts_tail_previous - (
-                                self.r_leader_acc_dur - ts_tail_remaining)
+                        headway_differences[leader] = ts_head_current - ts_prev_tail - (
+                                self.r_leader_acc_dur - ts_front_remaining)
 
-            # get the max thw
-            m_leader, max_thw = max(headway_differences.items(), key=lambda x: x[1])
-
-        # last veh on inflow_highway
-        dic_result = {m_leader: [max_thw]}
-        return dic_result
+        self.dic_mainline_gaps = {
+            leader_id: gap_seconds
+            for leader_id, gap_seconds in headway_differences.items()}
+        return self.dic_mainline_gaps
 
     def _get_max_interval_ml(self, step,
                              ls_m_leader_up_asc, ls_m_veh_up_asc):
@@ -471,8 +478,7 @@ class AvRmController:
                self.r_leader_acc_dur: the time needed for r_leader moving from stop point to the merging section
                dic_mplatoon_et: {m_leader:[platoon_type, ts_head, ts_tail, c_ts]}
                thw: time headway window
-        :return
-
+        :return dic_max_interval: {m_leader: [max_thw]}
         '''
 
         if step % 10 != 0:
@@ -514,8 +520,9 @@ class AvRmController:
 
             # 3.3 between platoons
             for i, head_id in enumerate(ls_m_leader_up_asc):
-                if head_id == 'm_av3171':
-                    pass
+                if head_id == first_m_leader and first_m_leader == first_veh:
+                    # This gap has already calculated in 3.2.
+                    continue
                 if head_id not in self.dic_mplatoon_et:
                     headway_differences[head_id] = 0
                 elif i >= 0:
@@ -566,7 +573,9 @@ class AvRmController:
             {r_leader: dic_platoon_info[r_leader] for r_leader in ls_r_leader_pre_stop if
              r_leader in dic_platoon_info}
         dic_ramp_platoon_basic = {key: value[0][:2] for key, value in dic_ramp_platoon_info.items()}  # 20240929update: fixed length platoon info
-        dic_r_platoon_travel_time = {key: value + [self.dic_platoon_merge_time_by_size[len(value[0])]]
+        # dic_r_platoon_travel_time = {key: value + [self.dic_platoon_merge_time_by_size[len(value[0])]]
+        #                              for key, value in dic_ramp_platoon_basic.items()}
+        dic_r_platoon_travel_time = {key: value + [self._get_R_MTW_duration(len(value[0]))]
                                      for key, value in dic_ramp_platoon_basic.items()}
         return dic_r_platoon_travel_time
 
@@ -600,7 +609,8 @@ class AvRmController:
                     final_rp_type += rp_type
                     final_rp_number = len(final_rp_type)
                     # accumulate ramp passing time
-                    cum_rp_pass_time = self.dic_platoon_merge_time_by_size.get(final_rp_number, float('inf'))
+                    # cum_rp_pass_time = self.dic_platoon_merge_time_by_size.get(final_rp_number, float('inf'))
+                    cum_rp_pass_time = self._get_R_MTW_duration(final_rp_number)
                     if cum_rp_pass_time < max_interval + self.delta_t:
                         ls_pass_rid.append(rp_leader)
                         if rp_leader not in self.ls_skip_stop and i != 0:
@@ -692,7 +702,8 @@ class AvRmController:
         if not m_leader:
             return self.dic_m_leader_action_params
 
-        if self.data_recorder.ms_exit_speed < 19.44:
+        if (self.data_recorder.ms_exit_speed is not None and
+                self.data_recorder.ms_exit_speed < 19.44):
             # if latest veihcle's speed exit MS is too low, no action
             return self.dic_m_leader_action_params
 
@@ -763,56 +774,33 @@ class AvRmController:
             self.m_leader_acting = True
         return action_m_leader
 
-    def _push_if_not_redundant(self, step, value,
-                               update_queue, last_value_attr: str):
-        """
-        Push a value into the specified delay update_queue if it's not redundant.
-
-        :param step: current time step
-        :param value: payload to be pushed
-        :param update_queue: which delay buffer to use (e.g., self.action_buffer or self.timing_buffer)
-        :param last_value_attr: name of attribute to store the last pushed value (e.g., 'last_action_payload')
-        :return: maybe_released value from the update_queue
-        """
-        if value == True:
-            pass
-        last_value = getattr(self, last_value_attr, None) # last_value_attr = last_value
-        # is_redundant = (value == last_value or all(not x for x in value))
-        if isinstance(value, (list, tuple)):
-            is_redundant = (value == last_value or all(not x for x in value))
-        else:
-            last_push_step = update_queue.buffer[0][1] if update_queue.buffer else None
-            is_redundant = (value is False or step == last_push_step)
-
-        if not is_redundant: # only push when is not redundant => is_redundant = False
-            setattr(self, last_value_attr, value) # last_value_attr = value
-            update_queue.push(step, value)
-        return update_queue.maybe_release(step)
-
     def _jam_control_clean(self, step, dic_platoon_info,
-                           ls_m_leader_up_asc, ls_m_veh_up_asc,
-                           dic_vid_groups, ls_r_dep_times, mpc_interval):
+                               dic_vid_groups, ls_r_dep_times,
+                               mpc_interval):
         '''
+        orignial version
         update 25.1.30
         :param step:
                dic_platoon_info: {'ravh40': [['AHHHHHHHHH', 'rhv130'], deque([p_length1, p_length2], maxlen=10)],
                                     'mavh40': [['AHHHHHHHHH', 'mhv130'], deque([p_length1, p_length2], maxlen=10)]}
                ls_m_leader_up_asc: ['mavh1920']
                ls_m_veh_up_asc: ['mhv693', 'mhv765', 'mhv784', 'mhv795', 'mhv811', 'mav839']
-               dic_mplatoon_et: {'mavh40': ['AHHHHHHHHH', 44.57387499999983, 64.42628849831135],
-                                'mavh310': ['AHHHHHHHHHHH', 63.3397847329901, 87.53000000000002, 63.1]}
+               dic_mplatoon_et: {'mavh40': ['AHHHHHHHHH', 44.57, 64.42],
+                                'mavh310': ['AHHHHHHHHHHH', 63.33, 87.53, 63.10]}
                dic_vid_groups: all veh info
                dic_id_speed: {id1 : [speed1, speed2, ...], id2: [speed1, speed2, ...]}
                ls_r_dep_times: [4, 5, 6, ....]
         :return:
         '''
-        self.dic_vid_groups = dic_vid_groups
         prc.print_message('**in jam mode**')
-        first_r_leader = self._stop_ramp_fleet3(dic_platoon_info)  # Stop first ramp leader
+        self.dic_vid_groups = dic_vid_groups
+        ls_m_leader_up_asc = dic_vid_groups['ls_m_leader_up_asc']
+        ls_m_veh_up_asc = dic_vid_groups['ls_m_veh_up_asc']
+        first_r_leader = self._stop_ramp_fleet3()  # Stop first ramp leader
         self._check_resume_state4(dic_platoon_info) # 241003update
         # Get Ramp Platoon travel Time (from stop to pass intersection)
         dic_r_platoon_travel_time = self._get_ramp_platoon_merge_duration(dic_platoon_info)
-        dic_max_interval = self._get_max_interval_upper(step, ls_m_leader_up_asc, ls_m_veh_up_asc)
+        dic_max_interval = self._get_max_interval_ml(step, ls_m_leader_up_asc, ls_m_veh_up_asc)
         m_leader, max_interval, final_rp_pass_time = self._compare3(dic_max_interval,
                                                                     dic_r_platoon_travel_time)
         # decide if m_leader need to take action
@@ -830,7 +818,6 @@ class AvRmController:
         return queue_log
 
     def _jam_control_disturbed(self, step, dic_platoon_info,
-                               ls_m_leader_up_asc, ls_m_veh_up_asc,
                                dic_vid_groups, ls_r_dep_times, mpc_interval):
         '''
         add v2x disturbance
@@ -838,9 +825,7 @@ class AvRmController:
         param
             step:
             dic_platoon_info:
-            ls_m_leader_up_asc: dic_m_leader_action_params
-            ls_m_veh_up_asc:
-            dic_vid_groups:
+            dic_vid_groups: vehicle groups including ls_m_leader_up_asc and ls_m_veh_up_asc
             dic_id_speed:
             ls_r_dep_times:
             mpc_interval:
@@ -852,12 +837,14 @@ class AvRmController:
         c_ts = round(step / 10 + 0.1, 1)
         c_ts % 1 == 0 and prc.print_message('**in jam mode**')
         self.dic_vid_groups = dic_vid_groups
+        ls_m_leader_up_asc = dic_vid_groups['ls_m_leader_up_asc']
+        ls_m_veh_up_asc = dic_vid_groups['ls_m_veh_up_asc']
         # Stop r_leader (the first one)
-        first_r_leader = self._stop_ramp_fleet3(dic_platoon_info)  # first r_leader id
+        first_r_leader = self._stop_ramp_fleet3()  # first r_leader id
         self._check_resume_state4(dic_platoon_info) # 241003update
         # Get ramp fleet travel time (from stop to pass intersection)
         dic_r_platoon_travel_time = self._get_ramp_platoon_merge_duration(dic_platoon_info)
-        dic_max_interval = self._get_max_interval_upper(step, self.ml,
+        dic_max_interval = self._get_max_interval_ml(step, self.ml,
                                                         ls_m_leader_up_asc, ls_m_veh_up_asc)
         m_leader, max_interval, final_rp_pass_time = self._compare3(dic_max_interval,
                                                                     dic_r_platoon_travel_time)

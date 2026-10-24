@@ -24,8 +24,11 @@ class FormationController:
                  tsg_mode='off', exp_name='default_run', loss_rate=0, learning_rate=5e-4,
                  train_interval=32, expert_hidden_dims=(64, 64),
                  gate_hidden_dims=(16, 16), max_team_size=12, fc_mode='full',
-                 comm_rng=None, se_model_path=None, ce_model_path=None, tsg_model_path=None):
+                 comm_rng=None, se_model_path=None, ce_model_path=None, tsg_model_path=None,
+                 jam_mode_core='legacy'):
         '''
+        jam_mode_core: 'legacy' (original Jam_mode) or 'dp' (dynamic programming)
+
         Train split_agent, "sa_mode='train', ca_mode='off'"
         Train collect_agent, "sa_mode='off', ca_mode='train'
 
@@ -37,6 +40,7 @@ class FormationController:
         self.max_team_size = max_team_size
         self.fc_mode = fc_mode
         self.modules = FC_MODES[fc_mode]
+        self.jam_mode_core = jam_mode_core
 
         # Initialise platoon modules
         self.pass_recorder = detector.DetectorPassRecorder(
@@ -202,10 +206,9 @@ class FormationController:
 
     def step(self, st, step, lc, rf_model=True):
         '''
-
-        :param st:
-        :param step:
-        :param lc: whether allow lane change for HV / av_followers; default True
+        :param
+            lc: whether allow lane change for HV / av_followers; default True
+            jam_mode_core: 'legacy' or 'dp' (dynamic programming)
         :return:
             dic_socre_reward: {'mbav1533': [0.6405384540557861]}
             dic_follower_state: {'mhv48': ['following_mode', 'mav38'], 'mhv65': ['following_mode', 'mav38']}
@@ -224,21 +227,22 @@ class FormationController:
         ls_ihB_av_asc = dic_vid_groups['ls_ihB_av_asc']
         ls_msB_av_asc = dic_vid_groups['ls_msB_av_asc']
         ls_m_leader_up_asc = dic_vid_groups['ls_m_leader_up_asc']
-        ls_r_veh_up_asc = dic_vid_groups['ls_r_veh_up_asc']
 
-        # Assign ramp leaders for freely arriving ramp vehicles.
-        dic_ramp_tags, ls_ramp_leader_AV = self.p_basic.tag_ramp_vehicles(
-                                                    ls_r_veh_up_asc=ls_r_veh_up_asc,
-                                                    ls_vehid=ls_vehid,
-                                                    enable_proactive_split=True)
+        if self.jam_mode_core == 'legacy':
+            # Assign ramp leaders for freely arriving ramp vehicles.
+            ls_r_veh_up_asc = dic_vid_groups['ls_r_veh_up_asc']
+            dic_ramp_tags, ls_ramp_leader_AV = self.p_basic.tag_ramp_vehicles(
+                                                        ls_r_veh_up_asc=ls_r_veh_up_asc,
+                                                        ls_vehid=ls_vehid,
+                                                        enable_proactive_split=True)
+            self.p_basic.set_av_role_colors(role_tags=dic_ramp_tags, vehicle_ids=ls_vehid)
 
         # ******** PLATOON INITIALISATION (DLA, dynamic leader assignment) ********
         # ** split_promote **
         (dic_tags, ls_leader_AV, ls_follower_AV, dic_platoon_size,
          dic_platoon_members, his_dic_platoon_size, dic_id_preState, dic_id_features) \
             = self.platoon_initialise(ls_ihA_asc, ls_vehid, rf_model=rf_model)
-        # set AV role colors
-        self.p_basic.set_av_role_colors(role_tags=dic_ramp_tags, vehicle_ids=ls_vehid)
+        # set m_AV role colors
         self.p_basic.set_av_role_colors(role_tags=dic_tags, vehicle_ids=ls_vehid)
 
         # ******** HANDLE OVERSIZED PLATOONS (SE) ********

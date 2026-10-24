@@ -20,8 +20,7 @@ class DetectorPassRecorder:
         # Newly detected vehicles in the current simulation step.
         self.new_pass_vid = {
             "pfz_entry": None,
-            "mcz_entry": None
-        }
+            "mcz_entry": None}
         # {leader_id: platoon_size}
         self.dic_leader_platoon_size = {}
 

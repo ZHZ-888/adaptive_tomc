@@ -27,7 +27,7 @@ from functions import accident_simulation
 def mpgc_main(av_p, r_fr, m_fr, seed, loss_rate=0,
               gui=False, plot=False, display=False,
               lc=True, st=1500, tsg_mode='predict', max_team_size=12,
-              fc_mode='full'):
+              fc_mode='full', jam_mode_core='legacy'):
     set_global_seed(seed, enable=True)  # set global random seed (especially for RL training)
     comm_rng = random.Random(seed + 100)
     # SUMO SETTING
@@ -40,9 +40,6 @@ def mpgc_main(av_p, r_fr, m_fr, seed, loss_rate=0,
     )
     # Simulation step length
     sim_step = 0.1
-    # Determine the SUMO binary based on whether GUI is needed
-    # sumo_bin = 'sumo-gui' if gui else 'sumo'
-
     sumo_home = "/home/zzha/opt/sumo-1.19.0-src"
     os.environ["SUMO_HOME"] = sumo_home
     sumo_bin = os.path.join(sumo_home, "bin", "sumo-gui" if gui else "sumo",)
@@ -122,12 +119,14 @@ def mpgc_main(av_p, r_fr, m_fr, seed, loss_rate=0,
                                                       loss_rate=loss_rate, tsg_mode=tsg_mode,
                                                       max_team_size=max_team_size,
                                                       fc_mode=fc_mode,
-                                                      comm_rng=comm_rng) # fix/off/predict/train/audit
-        merging_controller = mc.MergingController(data_recorder, traci, av_p,
-                                                  platoon_formation=True, ml=True,
+                                                      comm_rng=comm_rng,
+                                                      jam_mode_core=jam_mode_core) # fix/off/predict/train/audit
+        merging_controller = mc.MergingController(data_recorder, traci,
+                                                  platoon_formation=True,
                                                   loss_rate=loss_rate,
                                                   warmup_time=hpc_utils.DEFAULT_WARMUP_TIME,
-                                                  comm_rng=comm_rng, comp_logger=comp_logger)
+                                                  comm_rng=comm_rng, comp_logger=comp_logger,
+                                                  jam_mode_core=jam_mode_core)
 
         (dic_follower_state, his_dic_platoon_size,
          dic_id_features, tp, speed_log, queue_log, ts_first_jam, ts_first_back_to_regular) = \
@@ -181,15 +180,14 @@ def loop(traci, st, data_recorder,
         if c_ts % 1 == 0:
             prc.print_message(f'************current_time, step:{c_ts, step}************')
 
-        # main vehicle generation (1 => inner lane; 0 => outer lane)
-        veh_gen.veh_gen_hetero(step, m0_dpt_type, 'm', 'route_m', 27.5, '0')  # 25m/s => 90km/h; ori 29.5
-        veh_gen.veh_gen_hetero(step, m1_dpt_type, 'm', 'route_m', 27.5, '1')  # 30m/s => 110km/h # veh_gen_homo
-        # veh_gen.veh_gen_homo(step, m0_dpt_type, 'm', 'route_m', 27.5, '0')  # 25m/s => 90km/h; ori 29.5
-        # veh_gen.veh_gen_homo(step, m1_dpt_type, 'm', 'route_m', 27.5, '1')
-
-        # ramp vehicle generation
-        # veh_gen.platoon_gen(step, r_dpt_type, 'r', r_autoFollow_p)
-        veh_gen.veh_gen_hetero(step, r_dpt_type, 'r', 'route_r', 10, '0')
+        # veh generation with heter (1 => inner lane; 0 => outer lane)
+        # veh_gen.veh_gen_hetero(step, m0_dpt_type, 'm', 'route_m', 27.5, '0')  # 25m/s => 90km/h; ori 29.5
+        # veh_gen.veh_gen_hetero(step, m1_dpt_type, 'm', 'route_m', 27.5, '1')  # 30m/s => 110km/h # veh_gen_homo
+        # veh_gen.veh_gen_hetero(step, r_dpt_type, 'r', 'route_r', 10, '0')
+        # veh generation with homo
+        veh_gen.veh_gen_homo(step, m0_dpt_type, 'm', 'route_m', 27.5, '0')  # 25m/s => 90km/h; ori 29.5
+        veh_gen.veh_gen_homo(step, m1_dpt_type, 'm', 'route_m', 27.5, '1')
+        veh_gen.veh_gen_homo(step, r_dpt_type, 'r', 'route_r', 10, '0')
 
         # traffic_calibrator.update()
         with measure_cycle(
@@ -346,8 +344,8 @@ def _set_dynamic_traffic(step, start_t, r_dpt_type, dynamic=True):
     '''
     set dynamic traffic. For example: default r_demands=720 veh/h; start_t=5 min, new_fr=180 veh/h;
                                       after 5 min simulation, 720 veh/h => 180 veh/h
+    100324update: new ramp flow rate after 350
     '''
-    # 100324update: new ramp flow rate after 350
     start_t = 300
     dynamic = False
     if step == start_t * 10 and dynamic:
@@ -367,19 +365,20 @@ if __name__ == '__main__':
     (dic_follower_state, his_dic_platoon_size, dic_id_features,
      tp, speed_log, queue_log, output_file_path,
      se_result, ce_result, ts_first_jam, ts_first_back_to_regular) = mpgc_main(
-        av_p = 0.2, # 0.1
+        av_p = 0.1, # 0.1
         r_fr = 1200, # 1300
-        m_fr = 1500, # 1500
+        m_fr = 800, # 1500
         seed = 2, # 2 analysis
         loss_rate = 0, # 0.15
         gui = True,
         plot = False,
         display = False,
-        lc = True, # if allow HV lane-changing; True
+        lc = False, # if allow HV lane-changing; True
         fc_mode = 'full', # dla_only/dla_tsc/dla_tsc_lhr/dla_tsc_lhr_ce/full
         st = st, # 1200
         tsg_mode = 'predict', # off/fix/predict/train/audit
-        max_team_size = max_team_size
+        max_team_size = max_team_size,
+        jam_mode_core = 'dp' # 'legacy' (original Jam_mode) or 'dp' (dynamic programming)
     )
     end = time.time()
     runtime = end - start

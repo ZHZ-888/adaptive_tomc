@@ -120,6 +120,8 @@ class DataRecording:
         # list of rav leader (head) before merging
         ls_r_leader_up_asc = [vid for vid in self.ls_r_leader_his_asc
                               if vid in ls_r_veh_up_asc]
+        # list of av before merging
+        ls_r_av_up_asc = [vid for vid in ls_r_veh_up_asc if 'av' in vid]
 
         # leader before merging (mainline and ramp)
         ls_mr_leader_up = ls_ms_leader_up_asc + ls_r_leader_up_asc  # ls_mr_leader_up
@@ -235,6 +237,10 @@ class DataRecording:
         # update ls_vehid_last_step
         self.ls_vehid_last_step = ls_vehid
 
+        # vehicle info in platoon formation section (PFZ)
+        self.dic_vid_groups['ls_pf_veh_asc'] = ls_pf_veh_asc
+        self.dic_vid_groups['ls_pf_leader_asc'] = ls_pf_leader_asc
+
         # vehicle info in merging control section (MCZ)
         self.dic_vid_groups['ls_vehid'] = ls_vehid
         self.dic_vid_groups['ls_m_leader_net_asc'] = ls_ms_leader_net_asc  # small => big
@@ -244,6 +250,7 @@ class DataRecording:
         self.dic_vid_groups['ls_m_veh_net_asc'] = ls_m_veh_net_asc
 
         self.dic_vid_groups['ls_r_veh_up_asc'] = ls_r_veh_up_asc
+        self.dic_vid_groups['ls_r_av_up_asc'] = ls_r_av_up_asc
         self.dic_vid_groups['ls_r_leader_net_asc'] = ls_r_leader_net_asc
         self.dic_vid_groups['ls_r_leader_up_asc'] = ls_r_leader_up_asc
         self.dic_vid_groups['ls_r_veh_up'] = ls_r_veh_up  # ramp veh before merging
