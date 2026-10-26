@@ -72,7 +72,10 @@ class DPJam:
 
     def jam_control(self, step, dic_platoon_info, dic_mplatoon_et, dic_vid_groups,
                     ls_r_dep_times, mpc_interval, delta_t, pf):
-
+        """
+        dic_platoon_info: {leader_id: [[platoon_type, tail_id], deque([])], ...}
+        dic_mplatoon_et: {m_leader:[platoon_type, ts_head, ts_tail, c_ts]}
+        """
         self.jam_mode_start_ts = round(step/10 + 0.1, 1) \
             if self.jam_mode_start_ts is None else self.jam_mode_start_ts
         self.dic_mplatoon_et = dic_mplatoon_et
@@ -469,8 +472,7 @@ class DPJam:
                self.dur_r2h: the time needed for r_leader moving from stop point to the merging section
                dic_mplatoon_et: {m_leader:[platoon_type, ts_head, ts_tail, c_ts]}
                thw: time headway window
-        :return dic_mainline_gaps: {m_leader: [gap_seconds]} for all windows.
-                None identifies the window behind the last mainline vehicle.
+        :return dic_mainline_gaps: {m_leader: [gap_seconds, leader_release_time]}
         '''
         if step % 10 != 0:
             return self.dic_mainline_gaps
@@ -485,10 +487,11 @@ class DPJam:
                 and bool(pfz_leaders)
                 and first_pfz_vehicle == pfz_leaders[0])
 
-        headway_differences = {}
+        headway_differences = {} # {m_leader: [gap_seconds, leader_release_time]}
 
         # 1. no vehicles on the MCZ
         if len(ls_m_veh_up_asc) == 0:
+            leader = None
             thw = self.length_mcz / self.speed_level3 - self.dur_r2h
             if not pfz_vehicles:
                 thw = ((self.data_recorder.length_pfz + self.length_mcz)
@@ -498,7 +501,8 @@ class DPJam:
                   and self.merge_regular.first_pfz_leader_arrival_ts is not None):
                 thw = (self.merge_regular.first_pfz_leader_arrival_ts
                        - c_ts - self.dur_r2h - self.buffer)
-            headway_differences[None] = [thw, c_ts]
+                leader = pfz_leaders[0]
+            headway_differences[leader] = [thw, c_ts]
         # 2. no leader on the MCZ-outer, but there are followers
         elif len(ls_m_leader_up_asc) == 0:
             last_m_leader = next(reversed(self.dic_mplatoon_et))
@@ -530,8 +534,8 @@ class DPJam:
                     # This gap has already calculated in 3.1
                     continue
                 if leader not in self.dic_mplatoon_et:
-                    headway_differences[leader] = [0, None]
-                elif i >= 0:
+                    continue
+                else:
                     ts_head_current = self.dic_mplatoon_et[leader][1]
                     ts_prev_tail = self._get_prev_platoon_tail_at_ts(c_ts, leader)
                     ts_ramp_release = max(c_ts, ts_prev_tail + self.buffer - self.dur_r2h)
@@ -555,8 +559,8 @@ class DPJam:
                 headway_differences[leader] = [thw, ts_ramp_release]
 
         self.dic_mainline_gaps = {
-            leader_id: gap_seconds
-            for leader_id, gap_seconds in headway_differences.items()}
+            leader_id: gap_info
+            for leader_id, gap_info in headway_differences.items()}
         return self.dic_mainline_gaps
 
     def _get_max_interval_ml(self, step,
@@ -944,13 +948,18 @@ class DPJam:
            dic_mplatoon_et: {'mavh40': ['AHHHHHHHHH', 44.57, 64.42],
                             'mavh310': ['AHHHHHHHHHHH', 63.33, 87.53, 63.10]}
            dic_vid_groups: all veh info, including ls_m_leader_up_asc and ls_m_veh_up_asc
-             ls_m_leader_up_asc:
-             ls_m_veh_up_asc:
-             ls_r_veh_up_asc: ramp vehicles
-             ls_r_dep_times: [4, 5, 6, ....]
+           ls_m_leader_up_asc:
+           ls_m_veh_up_asc:
+           ls_r_veh_up_asc: ramp vehicles
+           ls_r_dep_times: [4, 5, 6, ....]
+           m_gaps: {m_leader: [gap_seconds, leader_release_time]}
         :return:
         '''
         prc.print_message('**in jam mode**')
+
+        dic_leader_size = {leader: len(info[0][0])
+                           for leader, info in dic_platoon_info.items()}
+
         self.dic_vid_groups = dic_vid_groups
         ls_m_leader_up_asc = dic_vid_groups['ls_m_leader_up_asc']
         ls_m_veh_up_asc = dic_vid_groups['ls_m_veh_up_asc']
@@ -959,7 +968,7 @@ class DPJam:
         self._check_resume_state4()
         # dp solver
         released_leader, next_leader, choosen_m_leader = dp_core.solve_ramp_schedule(
-            ls_r_veh_up_asc or [], m_gaps, self.stop_state)
+            ls_r_veh_up_asc or [], m_gaps, dic_leader_size, self.stop_state)
         timing = (released_leader is not None and
                   self._find_timing7(step, choosen_m_leader, None))
         if timing:

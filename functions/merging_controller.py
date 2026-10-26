@@ -47,11 +47,12 @@ class MergingController:
     def step(self, st, step):
         '''
 
-        :param st: total simulation time
-        :param step: simulation step
-        :param m_dpt_type: scripts lane veh departure schedule; {4: 'AHHHHHHHHH', 31: 'AHHHHHHHHHHH'}
-        :param r_dpt_type: ramp lane veh departure schedule; {4: 'AHHHHHHHHH', 58: 'AHHHHHHHHHHH'}
-        :param queue_log: record queue_length; [step, queue_length]
+        :param
+            st: total simulation time
+            step: simulation step
+            m_dpt_type: scripts lane veh departure schedule; {4: 'AHHHHHHHHH', 31: 'AHHHHHHHHHHH'}
+            r_dpt_type: ramp lane veh departure schedule; {4: 'AHHHHHHHHH', 58: 'AHHHHHHHHHHH'}
+            queue_log: record queue_length; [step, queue_length]
 
         :return:
         '''

@@ -41,7 +41,8 @@ def _remaining_vehicles(l, queue, av_positions):
     return 0 if l == len(av_positions) else len(queue) - av_positions[l]
 
 def _dp(g, l, queue,
-        gaps, av_positions, cache):
+        gaps, time_intervals, av_positions,
+        cache):
     """Solve DP state (g, l) using the supplied per-call cache.
 
     Parameters:
@@ -49,6 +50,8 @@ def _dp(g, l, queue,
         l: Current ramp leader index in the AV list; L = len(av_positions).
         queue: Vehicle IDs in ramp release order.
         gaps: Mainline gap durations in seconds, in scheduling order.
+        time_intervals: Time intervals between consecutive ramp release opportunities,
+                        used to calculate the stage waiting cost.
         av_positions: AV indices in the queue.
         cache: Dictionary {(g, l): (best_cost, best_plan)} for this solve only.
     Returns:
@@ -56,7 +59,7 @@ def _dp(g, l, queue,
         Each plan entry is ('hold', None) or
         (nl, {'batch': vehicle_ids, 'required_time': seconds}), where nl is
         the next leader index and nl == L means all vehicles are released.
-        The cost adds waiting-vehicle counts after each gap and a terminal
+        The cost accumulates remaining-vehicle waiting time in veh·s.
         penalty of 20 per vehicle left after the final gap.
 
         leader index counts from 0
@@ -75,11 +78,12 @@ def _dp(g, l, queue,
         stage_cost = _remaining_vehicles(l, queue, av_positions)
         return 20 * stage_cost, [] # 20 is the penalty for unreleased vehicles
 
+    stage_cost = _remaining_vehicles(
+        l, queue, av_positions) * time_intervals[g]
+
     # 3. Option 1: HOLD
     future_cost, future_plan = _dp(
-        g + 1, l, queue, gaps, av_positions, cache)
-    stage_cost = _remaining_vehicles(
-        l, queue, av_positions)
+        g + 1, l, queue, gaps, time_intervals, av_positions, cache)
     best_cost = stage_cost + future_cost
     best_plan = [("hold", None)] + future_plan
 
@@ -92,13 +96,12 @@ def _dp(g, l, queue,
             continue
         # Future optimal solution after releasing this batch
         future_cost, future_plan = _dp(
-            g + 1, nl,
-            queue, gaps, av_positions, cache)
-        stage_cost = _remaining_vehicles(
-            nl, queue, av_positions)
+            g + 1, nl, queue, gaps, time_intervals,
+            av_positions, cache)
         total_cost = stage_cost + future_cost
         # Keep the better decision
-        if total_cost < best_cost:
+        if (total_cost < best_cost or
+                (total_cost == best_cost and best_plan[0][0] == "hold")):
             best_cost = total_cost
             best_plan = ([(nl,
                           {"batch": batch, "required_time": t_req})]
@@ -110,16 +113,18 @@ def _dp(g, l, queue,
 
     return result
 
-def _solve_full_plan(queue_input, gaps_input):
-    """Schedule {leader_id: gap_seconds} in insertion order.
+def _solve_full_plan(queue_input, gaps_input, dic_leader_size):
+    """Schedule {leader_id: [gap_seconds, leader_release_time]} in insertion order.
 
     Nonpositive gaps result in HOLD. Each call owns its data and DP cache.
 
     Parameters:
         queue_input: Vehicle IDs in release order, beginning with an AV leader,
-            e.g. ['rav20', 'rhv46', 'rav99']. IDs starting with 'rav' are leaders.
-        gaps_input: {m_leader: gap_seconds}, e.g. {'mav50': 6.5}.
-            Dictionary insertion order defines the scheduling order.
+            e.g. ['rav20', 'rhv46', 'rav99'].
+        gaps_input: {m_leader: [gap_seconds, leader_release_time]}, e.g. {'mav50': [6.5, 12.3]}.
+            Dictionary insertion order defines the scheduling order. Only gap_seconds
+            is used for batch feasibility; leader_release_time is timing metadata.
+        dic_leader_size: {leader: platoon_size, ...}
     Returns:
         (best_cost, best_plan), using the cost and action format in _dp().
         best_cost: number
@@ -131,17 +136,29 @@ def _solve_full_plan(queue_input, gaps_input):
                     (nl, {'batch': vehicle_ids, 'required_time': seconds})
     """
     queue = list(queue_input)
-    gaps = list(gaps_input.values())
-    av_positions = [i for i, veh in enumerate(queue) if veh.startswith("rav")]
-    return _dp(0, 0, queue, gaps, av_positions, {})
 
-def solve_ramp_schedule(queue_input, gaps_input, stop_state):
+    gap_info = list(gaps_input.values())
+    gaps = [item[0] for item in gap_info]
+    release_times = [item[1] for item in gap_info]
+
+    # Waiting interval between consecutive release opportunities
+    time_intervals = [0.0]
+    for g in range(1, len(release_times)):
+        dt = release_times[g] - release_times[g - 1]
+        time_intervals.append(dt)
+
+    av_positions = [i for i, veh in enumerate(queue) if veh.startswith("rav")]
+    return _dp(0, 0, queue, gaps, time_intervals, av_positions, {})
+
+def solve_ramp_schedule(queue_input, gaps_input,
+                        dic_leader_size, stop_state):
     """Return the first scheduled release using the current queue and gaps.
 
     Parameters:
         queue_input: Ramp vehicle IDs in release order, starting with a rav leader.
-        gaps_input: {m_leader: gap_seconds}, in chronological insertion order.
+        gaps_input: {m_leader: [gap_seconds, leader_release_time]}, in chronological insertion order.
             A None key identifies a rear window without a mainline leader.
+        dic_leader_size: {leader: platoon_size, ...}
     Returns:
         (released_leader, next_leader, chosen_m_leader): the first release's
         ramp leader, the first leader left waiting, and the chosen gap key.
@@ -153,7 +170,8 @@ def solve_ramp_schedule(queue_input, gaps_input, stop_state):
         return None, None, None
     queue = list(queue_input)
     # Keep both local variables available for inspection in the debugger.
-    best_cost, best_plan = _solve_full_plan(queue, gaps_input)
+    best_cost, best_plan = _solve_full_plan(queue, gaps_input, dic_leader_size)
+    print(f"Best plan cost: {best_cost:.3f} veh·s")
     print_best_plan(best_plan, queue, gaps_input)
     av_ids = [veh for veh in queue if veh.startswith("rav")]
     gap_ids = list(gaps_input)
@@ -173,14 +191,15 @@ def print_best_plan(best_plan, queue_input, gaps_input):
         queue_input: Original queue used to solve this plan.
         gaps_input: Original gap dictionary, with the same insertion order.
     Returns:
-        None. Prints gap IDs and durations, HOLD or release batches, required
+        None. Prints gap IDs, durations and release times, HOLD or release batches, required
         merge times, and the next leader (END when all vehicles are released).
     """
     gap_items = list(gaps_input.items())
     av_ids = [veh for veh in queue_input if veh.startswith("rav")]
     for g, (decision, info) in enumerate(best_plan):
-        gap_id, gap_seconds = gap_items[g]
+        gap_id, (gap_seconds, leader_release_time) = gap_items[g]
         print(f"Gap G{g + 1} ({gap_id}) = {gap_seconds:.1f} s")
+        print(f"  Leader release time: {leader_release_time}")
         if decision == "hold":
             print("  Action: HOLD")
         else:
@@ -190,18 +209,30 @@ def print_best_plan(best_plan, queue_input, gaps_input):
             print(f"  Next leader: {next_leader}")
 
 if __name__ == "__main__":
-    queue_test2 = ['rav20', 'rhv46', 'rhv67', 'rhv82',
-                   'rav99', 'rhv128', 'rhv141', 'rhv155', 'rhv204',
-                   'rav251',
-                   'rav275',
-                   'rav297', 'rhv309',
-                   'rav324', 'rhv339']
+    queue_test = [
+        'rav20', 'rhv46', 'rhv67', 'rhv82',  # batch 1: 4
+        'rav99', 'rhv128', 'rhv141', 'rhv155', 'rhv204',  # batch 2: 5
+        'rav251',  # batch 3: 1
+        'rav275', 'rav297', 'rhv309',  # batch 4: 3
+        'rav324', 'rhv339'  # batch 5: 2
+    ]
 
-    gaps_test2 = {'mav17': 7.0,
-                  'mav50': 8.5,
-                  'mav243': 10.0,
-                  'mbav367': 12.0}
+    gaps_test = {
+        'mav17': [7.0, 0.0],
+        'mav50': [8.5, 5.0],
+        'mav180': [12.0, 12.0],
+        'mav243': [6.5, 20.0],
+        'mbav367': [5.0, 30.0]
+    }
+
+    dic_leader_size = {
+        'mav17': 4,
+        'mav50': 5,
+        'mav180': 10,
+        'mav243': 3,
+        'mbav367': 5
+    }
 
     released_leader, next_leader, chosen_m_leader = solve_ramp_schedule(
-        queue_test2, gaps_test2, stop_state=True)
+        queue_test, gaps_test, dic_leader_size, stop_state=True)
     print("First scheduled release:", released_leader, next_leader, chosen_m_leader)
