@@ -732,9 +732,6 @@ class MergingControlJam:
         else:
             r_leader_waiting_dur = c_ts - self.stop_times[first_r_leader]
 
-        if m_leader == 'm_av5112':
-            pass
-
         # Case 1: If r_leader has been waiting too long, allow looser error margin to avoid long waiting
         if r_leader_waiting_dur > 30 and interval_shortage <= allowable_error + 10:
             # Looser threshold due to long waiting time

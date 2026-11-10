@@ -4,6 +4,7 @@
 from functions import print_control as prc
 from functions import v2x_disturbance as v2x
 from functions import dp_core
+from functions import traj_optimiser
 
 class DPJam:
     def __init__(self, traci, instance_dr, merge_regular, loss_rate, comm_rng=None):
@@ -30,7 +31,6 @@ class DPJam:
         self.dic_desire_reach_ts = {} # drt => desire reaching timestamp
         # m_leader and its action parameters; self.dic_mavh_actionP => self.dic_m_leader_action_params
         self.dic_m_leader_action_params = {'':[]}
-        self.ls_r_proper = [] # list of ramp veh before acc
         self.dic_max_interval = {} # {m_leader: max_interval}
         self.dic_mainline_gaps = {} # {m_leader: gap_seconds}, None for the rear window
         self.released_avs = set()
@@ -53,11 +53,14 @@ class DPJam:
         self.last_m_leader = None
 
         self.cooldown_dur = 15 # 30
-        self.buffer = 1.5 # platoon-to-platoon time buffer, 1.5 s
+        self.buffer = 1.0 # platoon-to-platoon time buffer, 1.5 s
         self.stop_pos = 120
         self.speed_level3 = 25
-        # the time needed for ramp AV leader moving from stop point to the merging section (weaving section)
         self.dur_r2h = 11.5 # 9.3; 11.5; duration time from Ramp release to Head (r2h) arrival at MS
+
+        self.traj_optimiser = traj_optimiser.GetBVCurve2(
+            max_speed=self.speed_level3, arrival_speed_ratio=1.0)
+        self.dp_scheduler = dp_core.DPScheduler()
 
     def _get_R_MTW_duration(self, n):
         '''
@@ -164,16 +167,6 @@ class DPJam:
 
         return ls_r_av_fixed
 
-    def _get_r_proper(self): # _get_rvb_acc => _get_r_proper(self)
-        '''
-        get ls of ramp veh on RAMP_PROPER (section before acc lane)
-        :return: self.ls_rvb_acc => self.ls_r_proper
-        '''
-        ls_r_veh_up = self.dic_vid_groups["ls_r_veh_up"]
-        self.ls_r_proper = []
-        self.ls_r_proper = ls_r_veh_up
-        return self.ls_r_proper
-
     def _stop_ramp_fleet3(self):
         '''
         stop the ramp fleet closest to the merging section
@@ -239,7 +232,7 @@ class DPJam:
         self._monitor_ramp_leader_stop(self.r_leader_stop) if self.r_leader_stop is not None else None
         return self.r_leader_stop
 
-    def _check_resume_state4(self):
+    def _check_resume_state4(self, ls_vehid):
         '''
         default: False
         PS: sometimes the just stopped r_leader had already released, but the next r_leader in the process of stop
@@ -248,27 +241,26 @@ class DPJam:
         :param dic_platoon_info:
         :return: resume_state
         '''
+        ls_stopped_r_leader = list(self.stop_times)
+        if not ls_stopped_r_leader:
+            return
+        newest_stop_r_leader = ls_stopped_r_leader[-1]
+        if newest_stop_r_leader not in ls_vehid:
+            self.stop_state = False
+            self.resume_state = True
+            return
 
-        ls_stopped_r_leader = list(self.stop_times.keys())
+        pos = self.data_recorder.dic_pos[newest_stop_r_leader]
+        lane_id = self.data_recorder.dic_lane[newest_stop_r_leader]
+        speed = self.data_recorder.dic_speed[newest_stop_r_leader]
 
-        if len(ls_stopped_r_leader) > 0:
-            newest_stop_r_leader = ls_stopped_r_leader[-1]
-            # 10032024updated: make sure all stop vehicle are not in acc space
-            pos = self.data_recorder.dic_pos[newest_stop_r_leader] \
-                if newest_stop_r_leader in self.traci.vehicle.getIDList() else None
-            lane_id = self.data_recorder.dic_lane[newest_stop_r_leader] \
-                if newest_stop_r_leader in self.traci.vehicle.getIDList() else None
-            speed = self.data_recorder.dic_speed[newest_stop_r_leader] \
-                if newest_stop_r_leader in self.traci.vehicle.getIDList() else None  # velocity_newest_stop_r_leader
+        is_stopped = (
+                speed == 0
+                and pos < self.stop_pos + 5
+                and lane_id == 'inflow_merge_0')
 
-            # pos < 210;
-            if (speed == 0 and pos < self.stop_pos+5 and lane_id == 'inflow_merge_0'):
-                self.resume_state = False
-                self.stop_state = True
-            else:
-                self.resume_state = True
-                self.stop_state = False
-        return
+        self.stop_state = is_stopped
+        self.resume_state = not is_stopped
 
     def _get_remaining_t2(self, step, id, type='follower'):
         '''
@@ -317,8 +309,8 @@ class DPJam:
         :return:
         """
         c_ts = round(step/10 + 0.1, 1)
-
-        ls_m_veh_up_asc = self.dic_vid_groups.get('ls_m_veh_up_asc', None)  # ['mavh680', 'mhv690', 'mhv700', ] all veh on inflow_highway
+        # ['mavh680', 'mhv690', 'mhv700', ] all veh on inflow_highway
+        ls_m_veh_up_asc = self.dic_vid_groups.get('ls_m_veh_up_asc', None)
         self.timing = False
         # 10-s cooldown; in the first 10-s forbid to resume ramp stopped platoon
         if (self.stop_state and self.first_ramp_stop_ts is not None):
@@ -340,7 +332,8 @@ class DPJam:
                 return self.timing
 
         # S6: common situation 2, m_leader need to take action, and m_leader has a leader on inflow_highway
-        if self.stop_state and len(ls_m_veh_up_asc) > 0 and action_m_leader and self.m_leader_acting is True:
+        if (self.stop_state and len(ls_m_veh_up_asc) > 0
+                and action_m_leader and self.m_leader_acting is True):
             pv_info = self.traci.vehicle.getLeader(action_m_leader, self.length_mcz)
             if pv_info is not None:  # condition 6
 
@@ -350,12 +343,14 @@ class DPJam:
                 pv_tail_reach_ts = self._get_prev_platoon_tail_at_ts(c_ts, action_m_leader)
                 remain_time_pv = pv_tail_reach_ts - c_ts
 
-                if pv_lane_id == 'inflow_highway' and remain_time_pv + self.buffer <= self.dur_r2h:
+                if (pv_lane_id == 'inflow_highway'
+                        and remain_time_pv + self.buffer <= self.dur_r2h):
                     self.timing = True
                     return self.timing
 
         # S2: Most common situation without m_leader action
-        if self.stop_state and len(ls_m_veh_up_asc) > 0 and m_leader and self.m_leader_acting is False:
+        if (self.stop_state and len(ls_m_veh_up_asc) > 0
+                and m_leader and self.m_leader_acting is False):
             pv_info = self.traci.vehicle.getLeader(m_leader, self.length_mcz)
             if pv_info is not None:  # condition 6
                 pv_id = pv_info[0]
@@ -370,7 +365,8 @@ class DPJam:
                 return self.timing
 
         # S5: 100624updated, m_leader's pv is not on inflow_highway
-        if self.stop_state and len(ls_m_veh_up_asc) > 0 and m_leader and self.m_leader_acting is False:
+        if (self.stop_state and len(ls_m_veh_up_asc) > 0
+                and m_leader and self.m_leader_acting is False):
             self.timing = True  # S5
             return self.timing
         return self.timing
@@ -472,7 +468,7 @@ class DPJam:
                self.dur_r2h: the time needed for r_leader moving from stop point to the merging section
                dic_mplatoon_et: {m_leader:[platoon_type, ts_head, ts_tail, c_ts]}
                thw: time headway window
-        :return dic_mainline_gaps: {m_leader: [gap_seconds, leader_release_time]}
+        :return dic_mainline_gaps: {m_leader: [gap_seconds, leader_release_time, max_delta_t, absorption_gap]}
         '''
         if step % 10 != 0:
             return self.dic_mainline_gaps
@@ -488,6 +484,7 @@ class DPJam:
                 and first_pfz_vehicle == pfz_leaders[0])
 
         headway_differences = {} # {m_leader: [gap_seconds, leader_release_time]}
+        absorption_gaps = {}
 
         # 1. no vehicles on the MCZ
         if len(ls_m_veh_up_asc) == 0:
@@ -509,15 +506,23 @@ class DPJam:
             last_tail_ts = self.dic_mplatoon_et[last_m_leader][2]
             first_pfz_head_ts = self.merge_regular.first_pfz_leader_arrival_ts
             ts_ramp_release = max(c_ts, last_tail_ts + self.buffer - self.dur_r2h)
-            # consider in front buffer and rear buffer
-            thw = first_pfz_head_ts - (ts_ramp_release + self.dur_r2h) - self.buffer
-            headway_differences[pfz_leaders[0]] = [thw, ts_ramp_release]
+            if first_pfz_head_ts is None:
+                gap_end = c_ts + self.length_mcz / self.speed_level3
+                thw = gap_end - (ts_ramp_release + self.dur_r2h)
+                leader = None
+            else: # consider in front buffer and rear buffer
+                thw = first_pfz_head_ts - (ts_ramp_release + self.dur_r2h) - self.buffer
+                leader = pfz_leaders[0]
+            if thw > 0:
+                headway_differences[leader] = [thw, ts_ramp_release]
         # 3. both leaders and followers exists
         else:
             first_m_leader = ls_m_leader_up_asc[0]
             first_veh = ls_m_veh_up_asc[0]
             # 3.1 between the first platoon leader and the MS (Merging section) entry
             if first_m_leader == first_veh:
+                if first_m_leader == 'mav603':
+                    pass
                 dis = self.data_recorder.get_vid_states(first_m_leader)['dis']
                 first_veh_info = self.dic_mplatoon_et.get(first_m_leader, [None, None])
                 arrive_time = first_veh_info[1] # ts_head
@@ -530,6 +535,8 @@ class DPJam:
 
             # 3.2 between platoons
             for i, leader in enumerate(ls_m_leader_up_asc):
+                if leader == 'mav1741':
+                    pass
                 if leader == first_m_leader and first_m_leader == first_veh:
                     # This gap has already calculated in 3.1
                     continue
@@ -538,6 +545,10 @@ class DPJam:
                 else:
                     ts_head_current = self.dic_mplatoon_et[leader][1]
                     ts_prev_tail = self._get_prev_platoon_tail_at_ts(c_ts, leader)
+
+                    absorption_gap = max(0.0, ts_head_current - ts_prev_tail - self.buffer,)
+                    absorption_gaps[leader] = absorption_gap # different to usable gap
+
                     ts_ramp_release = max(c_ts, ts_prev_tail + self.buffer - self.dur_r2h)
                     thw = ts_head_current - ts_ramp_release - self.dur_r2h - self.buffer
                     headway_differences[leader] = [thw, ts_ramp_release]
@@ -549,6 +560,8 @@ class DPJam:
             gap_end = self.merge_regular.first_pfz_leader_arrival_ts
             ts_ramp_release = max(c_ts, gap_start + self.buffer - self.dur_r2h)
             leader = pfz_leaders[0] if pfz_leaders else None
+            if leader == 'mav603':
+                pass
             if gap_end is None:
                 gap_end = self.length_mcz / self.speed_level3 + c_ts
                 leader = None
@@ -558,10 +571,44 @@ class DPJam:
             if thw > 0:
                 headway_differences[leader] = [thw, ts_ramp_release]
 
-        self.dic_mainline_gaps = {
-            leader_id: gap_info
-            for leader_id, gap_info in headway_differences.items()}
+        controllable_leaders = set(ls_m_leader_up_asc)
+        mainline_gaps = {}
+        for leader, gap_info in headway_differences.items():
+            max_delta_t = (
+                self._get_max_yield_delay(leader, c_ts)
+                if leader is not None and leader in controllable_leaders
+                else 0.0)
+            absorption_gap = absorption_gaps.get(leader, max(0.0, gap_info[0]))
+            mainline_gaps[leader] = [*gap_info, max_delta_t, absorption_gap]
+        self.dic_mainline_gaps = mainline_gaps
         return self.dic_mainline_gaps
+
+    def _get_max_yield_delay(self, leader, current_ts):
+        '''
+        get the max yield delay for each mainline leader
+        '''
+        states = self.data_recorder.get_vid_states(leader)
+        v0 = states["v"]
+        dis = states["dis"]
+
+        arrival_info = self.dic_mplatoon_et.get(leader)
+        head_arrival_ts = (
+            arrival_info[1] if arrival_info is not None else None)
+
+        baseline_duration = (
+            head_arrival_ts - current_ts
+            if head_arrival_ts is not None
+            else dis / self.speed_level3)
+
+        if dis <= 0 or baseline_duration <= 0:
+            return 0.0
+
+        max_delta_t = self.traj_optimiser.get_max_delta_t(
+            v0=v0,
+            dis=dis,
+            dur_estimated=baseline_duration,)
+
+        return max_delta_t
 
     def _get_max_interval_ml(self, step,
                              ls_m_leader_up_asc, ls_m_veh_up_asc):
@@ -785,6 +832,18 @@ class DPJam:
         Returns:
             True if resume succeeds; False if release conditions are not met.
         """
+        if timing:
+            print(
+                "RELEASE CHECK:",
+                "leader =", first_r_leader,
+                "current_ts =", round(step / 10 + 0.1, 1),
+                "current_stop =", self.r_leader_stop,
+                "recorded =", first_r_leader in self.first_resume_recorded,
+                "stop_state =", self.stop_state,
+                "resume_state =", self.resume_state,
+                "pos =", self.data_recorder.dic_pos.get(first_r_leader),
+                "speed =", self.data_recorder.dic_speed.get(first_r_leader),)
+
         if (not timing
                 or first_r_leader is None
                 or first_r_leader in self.first_resume_recorded
@@ -819,8 +878,6 @@ class DPJam:
         self.stop_state = False
         self.resume_state = True
 
-        # Stop the next waiting AV, or find a new arrival after a full release.
-        self._stop_dp_next_leader(next_leader)
         return True
 
     def _get_m_leader_action(self, step, first_r_leader,
@@ -912,30 +969,123 @@ class DPJam:
         dic_m_leader_info = self.data_recorder.get_vid_states(m_leader)
         m_dis = dic_m_leader_info['dis']  # m_leader distance to ms
         m_v0 = dic_m_leader_info['v']
-        action_params = list(self.merge_regular.get_action_params(des_m_leader_reach_dur, m_dis, m_v0))
+        action_params = list(self.merge_regular.get_action_params(des_m_leader_reach_dur,
+                                                                  m_dis, m_v0))
         action_params.append(c_ts)  # (t1, a1, t3, a3, v_reach, c_ts)
         self.m_leader_action_dic[m_leader] = action_params
         self.dic_m_leader_action_params = {m_leader: action_params}
         return self.dic_m_leader_action_params
 
-    def _apply_m_leader_control(self, step, dic_m_leader_action_params):
+    def _apply_m_leader_control(self, step, dic_m_leader_action_params,
+                                ls_m_leader_up_asc):
         '''
         Apply m_leader action params
-        :param dic_m_leader_action_params: action params,
-            format => {'mavh1630': [14.3, -1.1, 14.6, 1.1, 24.9, 168.1]}
-        :return: the list of action_m_leader
+        PARAM: dic_m_leader_action_params:
+               => {'mavh1630': [14.3, -1.1, 14.6, 1.1, 24.9, 168.1]}
+        RETURN: the first controlled mainline leader, or None
         '''
-        ls_m_leader_up_asc = self.dic_vid_groups.get('ls_m_leader_up_asc', None)
-        action_m_leader = next(iter(dic_m_leader_action_params or {}), None)
-        self.m_leader_acting = False # should be m_leader_acting
-        if (action_m_leader in self.m_leader_action_dic
-            and action_m_leader in ls_m_leader_up_asc):
-            # apply action
-            self.merge_regular.apply_leader_action(step, dic_m_leader_action_params)
-            # flash
-            self.merge_regular.flashing_merging(step, [action_m_leader])
-            self.m_leader_acting = True
+        ls_m_leaders = set(ls_m_leader_up_asc or [])
+
+        valid_actions = {}
+        for leader, action_params in (dic_m_leader_action_params or {}).items():
+            if leader not in self.m_leader_action_dic:
+                continue
+            if leader not in ls_m_leaders:
+                continue
+            if leader == 'mav1489':
+                pass
+            valid_actions[leader] = action_params
+
+        self.m_leader_acting = bool(valid_actions)
+
+        if valid_actions:
+            self.merge_regular.apply_leader_action(
+                step, valid_actions,)
+            self.merge_regular.flashing_merging(
+                step, list(valid_actions),)
+
+        action_m_leader = next(iter(valid_actions), None)
         return action_m_leader
+
+    def _update_dp_m_leader_actions(self, dp_updated, mainline_actions,
+                                    c_ts):
+        '''
+        Convert and store DP-required mainline yielding actions.
+        Args:
+            mainline_actions: {m_leader: required_delta_t}
+            c_ts: Current simulation time.
+
+        Returns:
+            {m_leader: [t1, a1, t3, a3, v_reach, action_start_ts]}
+        '''
+        if not dp_updated:
+            return self.dic_m_leader_action_params
+
+        if not mainline_actions:
+            return self.dic_m_leader_action_params
+
+        dic_action_params = {}
+
+        for leader, delta_t in mainline_actions.items():
+            states = self.data_recorder.get_vid_states(leader)
+            dis = states["dis"]
+            v0 = states["v"]
+
+            arrival_info = self.dic_mplatoon_et.get(leader)
+            if arrival_info is None:
+                continue
+            baseline_duration = arrival_info[1] - c_ts
+            if dis <= 0 or baseline_duration <=0:
+                continue
+
+            desired_duration = baseline_duration + delta_t
+            action_params = list(
+                self.merge_regular.get_action_params(
+                    desired_duration, dis, v0,))
+            action_params.append(c_ts)
+
+            dic_action_params[leader] = action_params
+            self.m_leader_action_dic[leader] = action_params
+
+        if dic_action_params:
+            self.dic_m_leader_action_params = dic_action_params
+
+        return self.dic_m_leader_action_params
+
+    def _get_dp_leader_sizes(self, dic_platoon_info, mainline_gaps):
+        """Get final MCZ sizes and currently observed PFZ sizes.
+        params:
+        return:
+            leader_sizes: {leader_id, platoon_size}
+        """
+        leader_sizes = {
+            leader: len(info[0][0])
+            for leader, info in dic_platoon_info.items()}
+
+        observed_sizes = {}
+
+        for assigned_leader in (
+                self.data_recorder.dic_member_to_leader.values()):
+            observed_sizes[assigned_leader] = (
+                    observed_sizes.get(assigned_leader, 0) + 1)
+
+        for leader in mainline_gaps:
+            if leader is None or leader in leader_sizes:
+                continue
+
+            leader_sizes[leader] = max(1, observed_sizes.get(leader, 0),)
+
+        return leader_sizes
+
+    @staticmethod  # This method uses only explicit inputs and does not require self.
+    def _build_dp_queue(ls_r_veh_up_asc, r_leader_stop):
+        """Build the DP ramp queue from the currently stopped leader."""
+        if r_leader_stop in ls_r_veh_up_asc:
+            stop_index = ls_r_veh_up_asc.index(r_leader_stop)
+            dp_queue = ls_r_veh_up_asc[stop_index:]
+        else:
+            dp_queue = []
+        return dp_queue
 
     def _jam_control_clean(self, step, dic_platoon_info,
                            dic_vid_groups, ls_r_dep_times,
@@ -943,8 +1093,8 @@ class DPJam:
         '''
         New version for DP integration
         :param step:
-           dic_platoon_info: {'ravh40': [['AHHHHHHHHH', 'rhv130'], deque([p_length1, p_length2], maxlen=10)],
-                              'mavh40': [['AHHHHHHHHH', 'mhv130'], deque([p_length1, p_length2], maxlen=10)]}
+           dic_platoon_info: {'ravh40': [['AHHH', 'rhv130'], deque([p_length1, p_length2], maxlen=10)],
+                              'mavh40': [['AHHHH', 'mhv130'], deque([p_length1, p_length2], maxlen=10)]}
            dic_mplatoon_et: {'mavh40': ['AHHHHHHHHH', 44.57, 64.42],
                             'mavh310': ['AHHHHHHHHHHH', 63.33, 87.53, 63.10]}
            dic_vid_groups: all veh info, including ls_m_leader_up_asc and ls_m_veh_up_asc
@@ -952,34 +1102,51 @@ class DPJam:
            ls_m_veh_up_asc:
            ls_r_veh_up_asc: ramp vehicles
            ls_r_dep_times: [4, 5, 6, ....]
-           m_gaps: {m_leader: [gap_seconds, leader_release_time]}
+           m_gaps: {m_leader: [gap_seconds, leader_release_time, max_delta_t]}
         :return:
         '''
         prc.print_message('**in jam mode**')
+        c_ts = round(step / 10 + 0.1, 1)
 
-        dic_leader_size = {leader: len(info[0][0])
-                           for leader, info in dic_platoon_info.items()}
-
+        # 1. Get current vehicle states.
         self.dic_vid_groups = dic_vid_groups
+        ls_vehid = dic_vid_groups['ls_vehid']
         ls_m_leader_up_asc = dic_vid_groups['ls_m_leader_up_asc']
         ls_m_veh_up_asc = dic_vid_groups['ls_m_veh_up_asc']
-        ls_r_veh_up_asc = dic_vid_groups.get('ls_r_veh_up_asc', None)
+        ls_r_veh_up_asc = dic_vid_groups.get('ls_r_veh_up_asc', [])
+        ls_r_proper = dic_vid_groups.get('ls_r_veh_up', [])
+
+        # 2. Update the current ramp stop/resume state.
+        self._check_resume_state4(ls_vehid)
+
+        # 3. Build DP inputs.
         m_gaps = self._get_mainline_gaps(step, ls_m_leader_up_asc, ls_m_veh_up_asc)
-        self._check_resume_state4()
-        # dp solver
-        released_leader, next_leader, choosen_m_leader = dp_core.solve_ramp_schedule(
-            ls_r_veh_up_asc or [], m_gaps, dic_leader_size, self.stop_state)
-        timing = (released_leader is not None and
-                  self._find_timing7(step, choosen_m_leader, None))
-        if timing:
-            pass
-        if next_leader is None:
-            pass
-        self._restart_ramp_fleet(step, released_leader, timing)
-        stopped_leader = self._stop_dp_next_leader(next_leader)
-        ls_r_proper = self._get_r_proper()
+        dic_leader_size = self._get_dp_leader_sizes(dic_platoon_info, m_gaps)
+        dp_queue = self._build_dp_queue(ls_r_veh_up_asc, self.r_leader_stop)
+
+        # 4. Update the DP decision and its corresponding mainline actions.
+        dp_updated, mainline_actions = self.dp_scheduler.update(
+            step, c_ts, mpc_interval, dp_queue, m_gaps,
+            dic_leader_size, self.stop_state, allow_mainline_yield=True)
+        dic_m_leader_action_params = self._update_dp_m_leader_actions(
+            dp_updated, mainline_actions, c_ts)
+
+        # 5. Apply the stored mainline actions at every simulation step.
+        action_m_leader = self._apply_m_leader_control(
+            step, dic_m_leader_action_params, ls_m_leader_up_asc)
+
+        # 6. Execute the current ramp release decision.
+        released_leader = self.dp_scheduler.released_leader
+        next_leader = self.dp_scheduler.next_leader
+        timing = self.dp_scheduler.is_release_due(c_ts)
+        release_succeeded = self._restart_ramp_fleet(
+            step, released_leader, timing, next_leader)
+        self._stop_dp_next_leader(next_leader)
+        if release_succeeded:
+            self.dp_scheduler.reset()
+
+        # 7. Record ramp queue.
         queue_log = self.data_recorder.get_queue_length(step, ls_r_proper, ls_r_dep_times)
-        # self._restart_ramp_fleet(step, first_r_leader, timing)
         return queue_log
 
     def _jam_control_disturbed(self, step, dic_platoon_info,
@@ -1002,11 +1169,13 @@ class DPJam:
         c_ts = round(step / 10 + 0.1, 1)
         c_ts % 1 == 0 and prc.print_message('**in jam mode**')
         self.dic_vid_groups = dic_vid_groups
+        ls_vehid = dic_vid_groups['ls_vehid']
         ls_m_leader_up_asc = dic_vid_groups['ls_m_leader_up_asc']
         ls_m_veh_up_asc = dic_vid_groups['ls_m_veh_up_asc']
+        ls_r_proper = dic_vid_groups.get('ls_r_veh_up', [])
         # Stop r_leader (the first one)
         first_r_leader = self._stop_ramp_fleet3()  # first r_leader id
-        self._check_resume_state4() # 241003update
+        self._check_resume_state4(ls_vehid) # 241003update
         # Get ramp fleet travel time (from stop to pass intersection)
         dic_r_platoon_travel_time = self._get_ramp_platoon_merge_duration(dic_platoon_info)
         dic_max_interval = self._get_max_interval_ml(step, self.ml,
@@ -1023,13 +1192,14 @@ class DPJam:
         if action_pay_load and any(action_pay_load.values()):
             self.m_action_params = action_pay_load
             pass
-        action_m_leader = self._apply_m_leader_control(step, self.m_action_params) # pay_load = dic_m_leader_action_params
+        # pay_load = dic_m_leader_action_params
+        action_m_leader = self._apply_m_leader_control(
+            step, self.m_action_params, ls_m_leader_up_asc)
         timing = self._find_timing6(step, m_leader, action_m_leader, max_interval, final_rp_pass_time)
         if timing:
             self.timing_buffer.push(step, timing)
         timing = self.timing_buffer.maybe_release(step)
         # record ramp queue length
-        ls_r_proper = self._get_r_proper()
         queue_log = self.data_recorder.get_queue_length(step, ls_r_proper, ls_r_dep_times)
         # Resume r_leader
         self._restart_ramp_fleet(step, first_r_leader, timing)

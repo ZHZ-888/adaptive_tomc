@@ -12,7 +12,6 @@ class DataRecording:
         self.traci = traci
         self.sim_step = sim_step
         self.ls_r_veh_net_his = [] # rv emerged; all ramp veh that have emerged
-        self.ls_m_veh_net_his = [] # mv emerged; all mainline veh that have emerged
         self.ls_vehid_last_step = [] # vehid of last step
         self.ls_m_leader_his_asc = []
         self.ls_r_leader_his_asc = []
@@ -30,6 +29,7 @@ class DataRecording:
 
         self.throughput_count = 0
         self.max_speed = 27.78  # 27.78 m/s => 100 km/h
+        self.speed_level3 = None
         self.length_mcz = 800  # the length of merging control section
         self.length_pfz = int(self.length_ih - self.length_mcz)
         self.counted_vehicles = set()  # To record vehicles that have already been counted
@@ -52,8 +52,11 @@ class DataRecording:
         self.dic_member_to_leader = {} # only for multi-lane; {follower_id: leader_id}
 
         self.ls_features = []
+        self.ls_action_features = []
         self.leader_record_counter = defaultdict(int)
-        self.dic_tail_arrived_ms = {} # {leader_id: [tail_id, arrival_time]}
+        self.action_leader_record_counter = defaultdict(int)
+        self.dic_tail_arrived_ms = {}
+        # {leader_id: [tail_id, actual_head_ts, actual_tail_ts]}
         self.dic_platoon_info = {} # {vid:[type, tail_id, length1, length2...]}
         self.ms_exit_speed = None # the last pass vehicle speed that detected by 'ms_exit' detector
         self.max_platoon_size = None
@@ -101,7 +104,6 @@ class DataRecording:
         # m leader Before merging
         ls_ms_leader_up_asc = [vid for vid in ls_ms_veh_up_asc if vid in set_m_leader_his]
         ls_m_veh_net = [vid for vid in ls_vehid if 'm' in vid]
-        # ls_m_veh_net_asc = sorted(ls_m_veh_net, key=lambda x: int(''.join(filter(str.isdigit, x))))
         ls_m_veh_net_asc = self._sort_by_departure_ts(ls_m_veh_net)
 
         # r, ramp
@@ -442,18 +444,34 @@ class DataRecording:
         self.ls_features.append(record)
         return self.ls_features
 
+    def record_rf_action_features(
+            self, leader_id, features, action_start_ts,
+            est_head_dur, yield_dur,
+            max_delta_t, yield_ratio, target_head_ts):
+        """Record one feature row when a mainline yielding action starts."""
+        self.action_leader_record_counter[leader_id] += 1
+        record_index = self.action_leader_record_counter[leader_id]
+        action_features = [
+            est_head_dur, # free-flow
+            yield_dur,
+            max_delta_t,
+            yield_ratio,
+            target_head_ts]
+        record = ([leader_id, record_index, action_start_ts]
+                  + features + action_features)
+        self.ls_action_features.append(record)
+        return record
+
     def record_tail_arrival(self, step):
-        '''
-        call self._record_rf_at_target
-            self.dic_platoon_info = {'mavh70': [['AHH', 'mhv90'], deque([p_length1, p_length2], maxlen=10)]}
-        Params:
-            self.ls_tail_ids
-        '''
+        """Record the first MS arrival of each platoon head and tail."""
         ls_vehid = self.dic_vid_groups['ls_vehid']
-        ls_tail = [value[0][1] for value in self.dic_platoon_info.values()]
-        ls_tail_net = [vid for vid in ls_tail if vid in ls_vehid]
-        for tail_id in ls_tail_net:
-            self._record_rf_at_target(step, tail_id)
+        for leader_id, platoon_info in self.dic_platoon_info.items():
+            tail_id = platoon_info[0][1]
+            head_or_tail_on_network = (
+                leader_id in ls_vehid or tail_id in ls_vehid)
+            if head_or_tail_on_network:
+                self._record_rf_at_target(
+                    step, leader_id, tail_id, ls_vehid)
 
     def _sort_by_pos(self, ls, ascending=True):
         if ascending: # departure time: small => big; pos: big => small
@@ -469,24 +487,33 @@ class DataRecording:
         """
         return sorted(vid, key=self._get_vid_digit, reverse=reverse)
 
-    def _record_rf_at_target(self, step, tail_id):
-        '''
-        record platoon tail arrival time
-        enters WS for the first time
-        dic_tail_arrived_ms = {leader_id: [tail_id, arrival_time]}
-        '''
-        if tail_id == 'rhv540':
-            pass
-        if tail_id.startswith('m'):
-            leader_id = self.get_hv_leader(tail_id)
-        else:
-            leader_id = self.get_hv_leader(tail_id, m=False)
-        dic_vid_states = self.get_vid_states(tail_id)
-        lane = dic_vid_states['lane']
+    def _record_rf_at_target(
+            self, step, leader_id, tail_id, ls_vehid):
+        """
+        Record the first MS-arrival timestamps of a platoon head and tail.
+
+        Format:
+            {leader_id: [tail_id, actual_head_ts, actual_tail_ts]}
+        """
         c_ts = round(step/10 + 0.1, 1) # getTime() = c_ts + 0.1
-        if lane in ('ms_0', 'ms_1', 'ms_2') and leader_id not in self.dic_tail_arrived_ms:
-            # record only the first time
-            self.dic_tail_arrived_ms[leader_id] = [tail_id, c_ts]
+        arrival_record = self.dic_tail_arrived_ms.get(leader_id)
+
+        if leader_id in ls_vehid:
+            head_lane = self.get_vid_states(leader_id)['lane']
+            if head_lane in ('ms_0', 'ms_1', 'ms_2') and (
+                    arrival_record is None or arrival_record[1] is None):
+                arrival_record = self.dic_tail_arrived_ms.setdefault(
+                    leader_id, [tail_id, None, None])
+                arrival_record[1] = c_ts
+
+        if tail_id in ls_vehid:
+            tail_lane = self.get_vid_states(tail_id)['lane']
+            if tail_lane in ('ms_0', 'ms_1', 'ms_2') and (
+                    arrival_record is None or arrival_record[2] is None):
+                arrival_record = self.dic_tail_arrived_ms.setdefault(
+                    leader_id, [tail_id, None, None])
+                arrival_record[2] = c_ts
+
         return self.dic_tail_arrived_ms
 
     def _build_step_cache(self, ls_vehid):

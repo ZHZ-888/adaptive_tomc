@@ -27,7 +27,14 @@ class FormationController:
                  comm_rng=None, se_model_path=None, ce_model_path=None, tsg_model_path=None,
                  jam_mode_core='legacy'):
         '''
-        jam_mode_core: 'legacy' (original Jam_mode) or 'dp' (dynamic programming)
+        jam_mode_core: 'legacy', 'dp', or 'sampling' (mainline yield sampling)
+        fc_mode: 'dla_only', 'dla_tsc', 'dla_tsc_lhr', 'dla_tsc_lhr_ce', 'full'
+                  DLA: Dynamic leader assignment
+                  TSC: Tri-stage speed control
+                  LHR: Local heuristic reconfiguration
+                    CE: Collecting agent
+                    SE: Splitting agent
+
 
         Train split_agent, "sa_mode='train', ca_mode='off'"
         Train collect_agent, "sa_mode='off', ca_mode='train'
@@ -208,7 +215,7 @@ class FormationController:
         '''
         :param
             lc: whether allow lane change for HV / av_followers; default True
-            jam_mode_core: 'legacy' or 'dp' (dynamic programming)
+            jam_mode_core: 'legacy', 'dp', or 'sampling'
         :return:
             dic_socre_reward: {'mbav1533': [0.6405384540557861]}
             dic_follower_state: {'mhv48': ['following_mode', 'mav38'], 'mhv65': ['following_mode', 'mav38']}

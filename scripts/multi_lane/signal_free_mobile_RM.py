@@ -25,7 +25,7 @@ from functions.computation_logger import ComputationLogger, measure_cycle
 from functions import accident_simulation
 
 def mpgc_main(av_p, r_fr, m_fr, seed, loss_rate=0,
-              gui=False, plot=False, display=False,
+              sumo_mode="no_gui", plot=False, display=False,
               lc=True, st=1500, tsg_mode='predict', max_team_size=12,
               fc_mode='full', jam_mode_core='legacy'):
     set_global_seed(seed, enable=True)  # set global random seed (especially for RL training)
@@ -36,13 +36,13 @@ def mpgc_main(av_p, r_fr, m_fr, seed, loss_rate=0,
         / "road_network"
         / "multi_lane_motorway"
         / "real"
-        / "cfg_multi_lane_merge.sumocfg"
-    )
+        / "cfg_multi_lane_merge.sumocfg")
     # Simulation step length
     sim_step = 0.1
     sumo_home = "/home/zzha/opt/sumo-1.19.0-src"
     os.environ["SUMO_HOME"] = sumo_home
-    sumo_bin = os.path.join(sumo_home, "bin", "sumo-gui" if gui else "sumo",)
+    gui_enabled = sumo_mode != "no_gui"
+    sumo_bin = os.path.join(sumo_home, "bin", "sumo-gui" if gui_enabled else "sumo",)
 
     # Construct the SUMO command and options
     '''
@@ -83,23 +83,24 @@ def mpgc_main(av_p, r_fr, m_fr, seed, loss_rate=0,
                 "--device.ssm.thresholds", "3", # record 3s; output (default) 1.5s, see calc_ttc_sd_exposure.py
                 "--device.ssm.trajectories", "true",
                 "--device.ssm.write-lane-positions", "true",
-                "--no-warnings"]  #
+                "--no-warnings"]
     sumo_options = ["--step-length", str(sim_step)]
 
-    # If GUI is enabled, set the GUI view schema
-    if gui:
+    # Use libsumo-gui to avoid TraCI socket overhead (traci_gui).
+    if sumo_mode == "traci_gui":
+        os.environ.pop("LIBSUMO_GUI", None)
         import traci
-        traci.start(sumo_cmd + sumo_options)
-
-        print("SUMO engine:", traci.getVersion())
-        print("SUMO binary:", sumo_bin)
-
-        available_views = traci.gui.getIDList()
-        print("Available Views:", available_views)
-    else:
+    elif sumo_mode == "libsumo_gui":
+        os.environ["LIBSUMO_GUI"] = "1"
         import libsumo as traci
-        # import traci
-        traci.start(sumo_cmd + sumo_options)
+    elif sumo_mode == "no_gui":
+        os.environ.pop("LIBSUMO_GUI", None)
+        import libsumo as traci
+    traci.start(sumo_cmd + sumo_options)
+    print("SUMO mode:", sumo_mode)
+    print("SUMO engine:", traci.getVersion())
+    print("SUMO binary:", sumo_bin)
+
     try:
         # VEHICLE GENERATOR
         # scripts road veh depature schedule (lane0 and lane1)
@@ -127,6 +128,16 @@ def mpgc_main(av_p, r_fr, m_fr, seed, loss_rate=0,
                                                   warmup_time=hpc_utils.DEFAULT_WARMUP_TIME,
                                                   comm_rng=comm_rng, comp_logger=comp_logger,
                                                   jam_mode_core=jam_mode_core)
+
+        # Find the final ramp AV from the generated demand schedule.
+        last_rav_time = max(
+            arrival_time
+            for arrival_time, vehicle_type in r_dpt_type.items()
+            if vehicle_type == "AV")
+        last_rav_step = int(round((last_rav_time - 0.1) * 10))
+        last_rav_id = f"rav{last_rav_step}"
+        # Allow the final ramp AV to pass without stopping.
+        merging_controller.av_rm.ls_skip_stop.append(last_rav_id)
 
         (dic_follower_state, his_dic_platoon_size,
          dic_id_features, tp, speed_log, queue_log, ts_first_jam, ts_first_back_to_regular) = \
@@ -172,7 +183,7 @@ def loop(traci, st, data_recorder,
     # scripts loop
     while step < horizon_steps:
         # checkpoint
-        if step > 600 * 10:
+        if step > 140 * 10:
              pass
         traci.simulationStep()  # start simulation
 
@@ -246,6 +257,7 @@ def main(args=None, root=None):
     parser.add_argument('--loss_rate', type=float, default=0.0,
                         help='Packet loss rate for MPGC communication')
     parsed_args = parser.parse_args(args=args)
+    sumo_mode = "libsumo_gui" if parsed_args.gui else "no_gui"
 
     # 2. Run simulation
     # Call the original algorithm
@@ -258,7 +270,7 @@ def main(args=None, root=None):
         m_fr=parsed_args.m_fr, # default 1500; parsed_args.m_fr
         seed=parsed_args.seed,
         loss_rate=parsed_args.loss_rate,
-        gui=parsed_args.gui,
+        sumo_mode=sumo_mode,
         lc=parsed_args.lc,
         fc_mode=parsed_args.fc_mode,
         st=parsed_args.st,
@@ -365,12 +377,12 @@ if __name__ == '__main__':
     (dic_follower_state, his_dic_platoon_size, dic_id_features,
      tp, speed_log, queue_log, output_file_path,
      se_result, ce_result, ts_first_jam, ts_first_back_to_regular) = mpgc_main(
-        av_p = 0.1, # 0.1
-        r_fr = 1200, # 1300
-        m_fr = 800, # 1500
-        seed = 2, # 2 analysis
+        av_p = 0.3, # 0.1
+        r_fr = 800, # 1300
+        m_fr = 1500, # 1500
+        seed = 21, # 2
         loss_rate = 0, # 0.15
-        gui = True,
+        sumo_mode = "libsumo_gui", # libsumo_gui/traci_gui/no_gui
         plot = False,
         display = False,
         lc = False, # if allow HV lane-changing; True

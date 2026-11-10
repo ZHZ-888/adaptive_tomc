@@ -29,6 +29,7 @@ class PlatoonBasic:
         self.speed_level2 = 22.22  # 19.44 m/s (70km/h);
         self.speed_level1 = 16.67  # 16.67 m/s (60km/h)
         self.max_team_size = max_team_size
+        self.data_recorder.speed_level3 = self.speed_level3
 
         self.dec_av = []
         self.dic_tags = {}

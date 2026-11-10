@@ -40,9 +40,102 @@ def _remaining_vehicles(l, queue, av_positions):
     """
     return 0 if l == len(av_positions) else len(queue) - av_positions[l]
 
+def _propagate_yield(g, delta, gaps, absorption_gaps,
+                     release_times, gap_ids, ls_max_delta_t):
+    """Propagate the effect of a local mainline yielding action downstream.
+
+    Parameters:
+        g: Current gap index.
+        delta: Required yielding time for the current gap.
+        gaps: Current usable gap durations.
+        release_times: the release time for each gap
+        ls_max_delta_t: Maximum allowable yielding duration for each gap
+        gap_ids: IDs of the gaps; ['mav1', 'mav2', ...]
+    Returns:
+        Updated gap list after downstream propagation.
+    """
+    new_gaps = list(gaps)
+    new_absorption_gaps = list(absorption_gaps)
+    new_release_times = list(release_times)
+    new_ls_max_delta_t = list(ls_max_delta_t)
+    mainline_actions = {}
+    mainline_delays = {}
+
+    if delta <= 0:
+        return (new_gaps, new_absorption_gaps, new_release_times,
+                new_ls_max_delta_t, mainline_actions, mainline_delays)
+
+    # current leader actively yields
+    leader = gap_ids[g]
+    if leader is None:
+        return None
+    if delta > new_ls_max_delta_t[g]:
+        return None
+
+    mainline_actions[leader] = delta
+    mainline_delays[leader] = delta
+    new_ls_max_delta_t[g] -= delta # occupied delta, then minus delta
+    new_gaps[g] += delta # Current gap is enlarged by delta
+    new_absorption_gaps[g] += delta
+    # This leader becomes the front platoon of the next gap,
+    # so the next release opportunity is delayed by the same amount
+    if g + 1 < len(new_release_times):
+        new_release_times[g + 1] += delta
+    remaining_delta = delta
+    # Propagate the compression to downstream gaps
+    for k in range(g + 1, len(new_gaps)):
+        if remaining_delta <= 0:
+            break
+
+        absorbed_delta = min(remaining_delta, new_absorption_gaps[k])
+        new_gaps[k] -= absorbed_delta
+        new_absorption_gaps[k] -= absorbed_delta
+        remaining_delta -= absorbed_delta
+
+        if remaining_delta <= 0:
+            break
+        leader = gap_ids[k]
+        if leader is None:
+            continue
+        required_delta = remaining_delta
+        available_delta = max(0.0, new_ls_max_delta_t[k])
+        # active_delta is the delay actively applied to the downstream leader.
+        active_delta = min(required_delta, available_delta)
+        if active_delta > 0:
+            mainline_actions[leader] = active_delta
+            new_ls_max_delta_t[k] -= active_delta
+        # Record the total delay caused by both active and passive responses.
+        mainline_delays[leader] = required_delta
+        # The total delay, including the passive response, propagates downstream.
+        if k + 1 < len(new_release_times):
+            new_release_times[k + 1] += required_delta
+
+    return (new_gaps, new_absorption_gaps, new_release_times,
+            new_ls_max_delta_t, mainline_actions, mainline_delays)
+
+def _get_mainline_cost(mainline_delays, dic_leader_size):
+    """Calculate the cumulative mainline delay cost."""
+    cost = 0
+    for leader, delta in mainline_delays.items():
+        n = dic_leader_size[leader]
+        cost += n * delta
+    return cost
+
+def _get_ramp_cost(g, l, queue,
+                   av_positions, release_times, current_time):
+    """Calculate ramp-side waiting cost at the current DP stage."""
+    n = _remaining_vehicles(l, queue, av_positions)
+    if g == 0:
+        time_interval = max(0.0, release_times[g] - current_time)
+    else:
+        time_interval = max(0.0, release_times[g] - release_times[g-1])
+    return n * time_interval
+
 def _dp(g, l, queue,
-        gaps, time_intervals, av_positions,
-        cache):
+        gaps, absorption_gaps, release_times,
+        ls_max_delta_t, gap_ids, dic_leader_size,
+        av_positions, cache,
+        current_time, allow_mainline_yield=True):
     """Solve DP state (g, l) using the supplied per-call cache.
 
     Parameters:
@@ -50,70 +143,129 @@ def _dp(g, l, queue,
         l: Current ramp leader index in the AV list; L = len(av_positions).
         queue: Vehicle IDs in ramp release order.
         gaps: Mainline gap durations in seconds, in scheduling order.
-        time_intervals: Time intervals between consecutive ramp release opportunities,
-                        used to calculate the stage waiting cost.
+        release_times:
+        ls_max_delta_t: max yielding duration available for each mainline gap
         av_positions: AV indices in the queue.
         cache: Dictionary {(g, l): (best_cost, best_plan)} for this solve only.
+        cache: (g, l, future_gaps, future release times) -> (2, 1, (12.0, 6.5, 5.0), (5.0, 12.0, 20.0)))
     Returns:
-        (best_cost, best_plan) for the remaining gaps and vehicles.
-        Each plan entry is ('hold', None) or
-        (nl, {'batch': vehicle_ids, 'required_time': seconds}), where nl is
-        the next leader index and nl == L means all vehicles are released.
+        best_cost: veh·s
+        best_plan: {
+            "batch": batch,                    # Ramp vehicles released in this batch
+            "required_time": t_req,            # Time required for the batch to merge
+            "delta": delta,                    # Additional time required for the current gap
+            "mainline_actions": actions,       # Required yielding delays for mainline leaders
+            "mainline_cost": mainline_cost,    # Delay cost imposed on the mainline
+            }
+
         The cost accumulates remaining-vehicle waiting time in veh·s.
         penalty of 20 per vehicle left after the final gap.
-
-        leader index counts from 0
     """
     L = len(av_positions) # number of AVs
     G = len(gaps) # number of gaps
 
     # 1. Cached state
-    if (g, l) in cache:
-        return cache[g, l]
+    previous_release_time = (
+        None if g == 0
+        else round(release_times[g - 1], 3))
+
+    state_key = (
+        g, l, previous_release_time, tuple(round(x, 3) for x in gaps[g:]),
+        tuple(round(x, 3) for x in absorption_gaps[g:]),
+        tuple(round(x, 3) for x in release_times[g:]),
+        tuple(round(x, 3) for x in ls_max_delta_t[g:]))
+
+    if state_key in cache:
+        return cache[state_key]
 
     # 2. Terminal states
     if l == L: # this leader is the last one, all vehicles are released
         return 0, []
     if g == G: # this gap is the last gap
-        stage_cost = _remaining_vehicles(l, queue, av_positions)
-        return 20 * stage_cost, [] # 20 is the penalty for unreleased vehicles
+        remaining = _remaining_vehicles(l, queue, av_positions)
+        terminal_wait = 900.0
+        return remaining * terminal_wait, [] # terminal_wait is the penalty for unreleased vehicles
 
-    stage_cost = _remaining_vehicles(
-        l, queue, av_positions) * time_intervals[g]
+    ramp_cost = _get_ramp_cost(
+        g, l, queue, av_positions, release_times, current_time)
 
     # 3. Option 1: HOLD
     future_cost, future_plan = _dp(
-        g + 1, l, queue, gaps, time_intervals, av_positions, cache)
-    best_cost = stage_cost + future_cost
+        g + 1, l, queue, gaps, absorption_gaps, release_times,
+        ls_max_delta_t, gap_ids, dic_leader_size, av_positions,
+        cache, current_time, allow_mainline_yield)
+    best_cost = ramp_cost + future_cost
     best_plan = [("hold", None)] + future_plan
 
     # 4. Option 2: RELEASE
-    for nl in range(l + 1, L + 1):
+    # the last observed AV leads an open platoon and must reamin as the stopping boundary
+    for nl in range(l + 1, L):
         batch = _get_batch(l, nl, queue, av_positions)
         t_req = _required_time(batch)
-        # Batch cannot use this gap
-        if t_req > gaps[g]:
+
+        # Reject batches that exceed the maximum feasible gap
+        gap = gaps[g]
+        max_delta_t = ls_max_delta_t[g]
+        max_feasible_gap = gap + max_delta_t
+        if t_req > max_feasible_gap:
             continue
+
+        delta = max(0.0, t_req - gaps[g])
+        # DISABLED mainline yielding
+        if delta > 0 and not allow_mainline_yield:
+            continue
+        # mainline leader yielding time for this batch
+        # no mainline leader is available to yield
+        if delta > 0 and gap_ids[g] is None:
+            continue
+        if delta > 0:
+            propagation_result = _propagate_yield(
+                g, delta, gaps, absorption_gaps,
+                release_times, gap_ids, ls_max_delta_t)
+            if propagation_result is None:
+                continue
+            (new_gaps, new_absorption_gaps, new_release_times,
+             new_ls_max_delta_t, mainline_actions, mainline_delays) \
+                = propagation_result
+            mainline_cost = _get_mainline_cost(
+                mainline_delays,
+                dic_leader_size)
+        else:
+            new_gaps = gaps
+            new_absorption_gaps = absorption_gaps
+            new_release_times = release_times
+            new_ls_max_delta_t = ls_max_delta_t
+            mainline_actions = {}
+            mainline_delays = {}
+            mainline_cost = 0
+
         # Future optimal solution after releasing this batch
         future_cost, future_plan = _dp(
-            g + 1, nl, queue, gaps, time_intervals,
-            av_positions, cache)
-        total_cost = stage_cost + future_cost
+            g + 1, nl, queue, new_gaps, new_absorption_gaps, new_release_times,
+            new_ls_max_delta_t, gap_ids, dic_leader_size, av_positions, cache,
+            current_time, allow_mainline_yield)
+        total_cost = ramp_cost + mainline_cost + future_cost
         # Keep the better decision
         if (total_cost < best_cost or
                 (total_cost == best_cost and best_plan[0][0] == "hold")):
             best_cost = total_cost
-            best_plan = ([(nl,
-                          {"batch": batch, "required_time": t_req})]
-                         + future_plan)
+            best_plan = ([(nl, {
+                "batch": batch,
+                "required_time": t_req,
+                "delta": delta,
+                "mainline_actions": mainline_actions,
+                "mainline_delays": mainline_delays,
+                "mainline_cost": mainline_cost
+            })] + future_plan)
 
     # 5. Save and return
     result = (best_cost, best_plan)
-    cache[g, l] = result
+    cache[state_key] = result
 
     return result
 
-def _solve_full_plan(queue_input, gaps_input, dic_leader_size):
+def _solve_full_plan(queue_input, gaps_input, dic_leader_size,
+                     current_time, allow_mainline_yield=True):
     """Schedule {leader_id: [gap_seconds, leader_release_time]} in insertion order.
 
     Nonpositive gaps result in HOLD. Each call owns its data and DP cache.
@@ -121,56 +273,64 @@ def _solve_full_plan(queue_input, gaps_input, dic_leader_size):
     Parameters:
         queue_input: Vehicle IDs in release order, beginning with an AV leader,
             e.g. ['rav20', 'rhv46', 'rav99'].
-        gaps_input: {m_leader: [gap_seconds, leader_release_time]}, e.g. {'mav50': [6.5, 12.3]}.
-            Dictionary insertion order defines the scheduling order. Only gap_seconds
-            is used for batch feasibility; leader_release_time is timing metadata.
+        gaps_input: {m_leader: [gap_seconds, leader_release_time, max_delta_t, absorption_gap]},
+                    e.g. {'mav50': [6.5, 12.3, 3.0]}.
         dic_leader_size: {leader: platoon_size, ...}
     Returns:
         (best_cost, best_plan), using the cost and action format in _dp().
-        best_cost: number
-        best_plan: [('hold', None),
-                    (1, {'batch': ['rav20', 'rhv46', 'rhv67', 'rhv82'], 'required_time': 8.001}),
-                    (2, {'batch': ['rav99', 'rhv128', 'rhv141', ...], 'required_time': 9.754}),
-                    (6, {'batch': ['rav251', 'rav275', 'rav297', ...], 'required_time': 11.507})]
-
-                    (nl, {'batch': vehicle_ids, 'required_time': seconds})
+        best_cost: veh·s
+        best_plan:
+            each decision is either ("hold", None)
+                                 or (nl, info)
+                nl: Index of the next unreleased ramp AV in av_ids.
+                info:
+                {
+                "batch": batch,                    # Ramp vehicles released in this batch
+                "required_time": t_req,            # Time required for the batch to merge
+                "delta": delta,                    # Additional time required for the current gap
+                "mainline_actions": actions,       # Required yielding delays for mainline leaders
+                "mainline_cost": mainline_cost,    # Delay cost imposed on the mainline
+                }
     """
     queue = list(queue_input)
+    av_positions = [i for i, veh in enumerate(queue) if veh.startswith("rav")]
 
     gap_info = list(gaps_input.values())
+    gap_ids = list(gaps_input.keys())
+
     gaps = [item[0] for item in gap_info]
     release_times = [item[1] for item in gap_info]
+    ls_max_delta_t = [item[2] for item in gap_info]
+    absorption_gaps = [item[3] for item in gap_info]
 
-    # Waiting interval between consecutive release opportunities
-    time_intervals = [0.0]
-    for g in range(1, len(release_times)):
-        dt = release_times[g] - release_times[g - 1]
-        time_intervals.append(dt)
+    best_cost, best_plan = _dp(0, 0, queue, gaps, absorption_gaps, release_times,
+                               ls_max_delta_t, gap_ids, dic_leader_size, av_positions,
+                               {}, current_time, allow_mainline_yield)
 
-    av_positions = [i for i, veh in enumerate(queue) if veh.startswith("rav")]
-    return _dp(0, 0, queue, gaps, time_intervals, av_positions, {})
+    return best_cost, best_plan
 
-def solve_ramp_schedule(queue_input, gaps_input,
-                        dic_leader_size, stop_state):
+def solve_ramp_schedule(current_time, queue_input, gaps_input,
+                        dic_leader_size, stop_state,
+                        allow_mainline_yield=True):
     """Return the first scheduled release using the current queue and gaps.
 
     Parameters:
         queue_input: Ramp vehicle IDs in release order, starting with a rav leader.
-        gaps_input: {m_leader: [gap_seconds, leader_release_time]}, in chronological insertion order.
+        gaps_input: {m_leader: [gap_seconds, leader_release_time, max_delta_t]}, in insertion order.
             A None key identifies a rear window without a mainline leader.
         dic_leader_size: {leader: platoon_size, ...}
     Returns:
-        (released_leader, next_leader, chosen_m_leader): the first release's
-        ramp leader, the first leader left waiting, and the chosen gap key.
-        next_leader is None when the batch releases all remaining vehicles.
-        Returns (None, None, None) if no release is planned.
-        A future chosen gap is a scheduled release, not an immediate command.
+        released_leader:
+        next_leader:
+        chosen_m_leader:
+        mainline_actions: {'mav1': 4.248, 'mav2': 1.248}
     """
     if not stop_state:
-        return None, None, None
+        return None, None, None, {}
     queue = list(queue_input)
     # Keep both local variables available for inspection in the debugger.
-    best_cost, best_plan = _solve_full_plan(queue, gaps_input, dic_leader_size)
+    best_cost, best_plan = _solve_full_plan(queue, gaps_input, dic_leader_size,
+                                            current_time, allow_mainline_yield)
     print(f"Best plan cost: {best_cost:.3f} veh·s")
     print_best_plan(best_plan, queue, gaps_input)
     av_ids = [veh for veh in queue if veh.startswith("rav")]
@@ -179,9 +339,13 @@ def solve_ramp_schedule(queue_input, gaps_input,
         if decision != "hold":
             next_leader = av_ids[decision] if decision < len(av_ids) else None
             released_leader = info['batch'][0]
-            choosen_m_leader = gap_ids[g]
-            return released_leader, next_leader, choosen_m_leader
-    return None, None, None
+            chosen_m_leader = gap_ids[g]
+
+            if released_leader in ['rav423']:
+                pass
+
+            return released_leader, next_leader, chosen_m_leader, info['mainline_actions']
+    return None, None, None, {}
 
 def print_best_plan(best_plan, queue_input, gaps_input):
     """Print using the same inputs that produced the plan.
@@ -197,42 +361,122 @@ def print_best_plan(best_plan, queue_input, gaps_input):
     gap_items = list(gaps_input.items())
     av_ids = [veh for veh in queue_input if veh.startswith("rav")]
     for g, (decision, info) in enumerate(best_plan):
-        gap_id, (gap_seconds, leader_release_time) = gap_items[g]
-        print(f"Gap G{g + 1} ({gap_id}) = {gap_seconds:.1f} s")
-        print(f"  Leader release time: {leader_release_time}")
+        gap_id, gap_info = gap_items[g]
+        gap_seconds = gap_info[0]
+        leader_release_time = gap_info[1]
+        max_delta_t = gap_info[2]
+
+        print(f"\nGap G{g + 1} ({gap_id})")
+        print(f"  Original gap: {gap_seconds:.1f} s")
+        print(f"  Original release time: {leader_release_time:.1f} s")
+        print(f"  Maximum yielding delay: {max_delta_t:.1f} s")
+
         if decision == "hold":
             print("  Action: HOLD")
         else:
             next_leader = av_ids[decision] if decision < len(av_ids) else "END"
+
+            formatted_actions = {
+                leader: round(delta, 3)
+                for leader, delta in info["mainline_actions"].items()}
+
+            formatted_delays = {
+                leader: round(delta, 3)
+                for leader, delta in info["mainline_delays"].items()}
+
             print(f"  Release batch: {info['batch']}")
-            print(f"  Required time: {info['required_time']:.1f} s")
-            print(f"  Next leader: {next_leader}")
+            print(f"  Required time: {info['required_time']:.3f} s")
+            print(f"  Required yielding: {info['delta']:.3f} s")
+            print(f"  Mainline actions: {formatted_actions}")
+            print(f"  Mainline delays: {formatted_delays}")
+            print(f"  Mainline cost: {info['mainline_cost']:.3f}")
+            print(f"  Next ramp leader: {next_leader}")
+
+
+class DPScheduler:
+    """Store and periodically update the current DP scheduling decision."""
+
+    def __init__(self):
+        self.reset()
+
+    def update(self, step, current_time, update_interval, queue_input,
+               gaps_input, dic_leader_size,
+               stop_state, allow_mainline_yield=True):
+        """
+        Update the stored DP decision at the configured interval.
+        Params:
+            leader_sizes: {leader_id, platoon_size}
+        Returns:
+            dp_updated: True if the DP decision was updated; otherwise False.
+            mainline_actions: Newly generated mainline actions, or None if not updated.
+        """
+        if not stop_state:
+            return False, None
+
+        # Keep the current plan until its release is completed.
+        if self.released_leader is not None:
+            return False, None
+
+        if (self.last_update_step is not None
+                and step - self.last_update_step < update_interval):
+            return False, None
+
+        (self.released_leader, self.next_leader,
+         self.chosen_m_leader, self.mainline_actions) = solve_ramp_schedule(
+            current_time, queue_input, gaps_input,
+            dic_leader_size, stop_state, allow_mainline_yield)
+
+        if self.released_leader == 'rav1844':
+            pass
+
+        gap_info = (gaps_input.get(self.chosen_m_leader)
+                    if self.released_leader is not None else None)
+        self.release_ts = gap_info[1] if gap_info is not None else None
+        self.last_update_step = step
+
+        return True, self.mainline_actions
+
+    def is_release_due(self, current_time):
+        if self.released_leader is None:
+            return False
+        if self.release_ts is None:
+            return False
+        if current_time < self.release_ts:
+            return False
+        return True
+
+    def reset(self):
+        """Clear the stored DP scheduling decision."""
+        self.released_leader = None
+        self.next_leader = None
+        self.chosen_m_leader = None
+        self.mainline_actions = {}
+        self.release_ts = None
+        self.last_update_step = None
+
 
 if __name__ == "__main__":
+    c_ts = 1.0
+
     queue_test = [
-        'rav20', 'rhv46', 'rhv67', 'rhv82',  # batch 1: 4
-        'rav99', 'rhv128', 'rhv141', 'rhv155', 'rhv204',  # batch 2: 5
-        'rav251',  # batch 3: 1
-        'rav275', 'rav297', 'rhv309',  # batch 4: 3
-        'rav324', 'rhv339'  # batch 5: 2
-    ]
+        'rav1', 'rhv1',
+        'rav2', 'rhv2']
 
     gaps_test = {
-        'mav17': [7.0, 0.0],
-        'mav50': [8.5, 5.0],
-        'mav180': [12.0, 12.0],
-        'mav243': [6.5, 20.0],
-        'mbav367': [5.0, 30.0]
-    }
+        'mav1': [3.0, 0.0, 2.0],
+        'mav2': [5.0, 5.0, 2.0],
+        'mav3': [5.0, 10.0, 2.0]}
 
     dic_leader_size = {
-        'mav17': 4,
-        'mav50': 5,
-        'mav180': 10,
-        'mav243': 3,
-        'mbav367': 5
-    }
+        'mav1': 2,
+        'mav2': 4,
+        'mav3': 3}
 
-    released_leader, next_leader, chosen_m_leader = solve_ramp_schedule(
-        queue_test, gaps_test, dic_leader_size, stop_state=True)
+    released_leader, next_leader, chosen_m_leader, mainline_actions = solve_ramp_schedule(
+        c_ts, queue_test, gaps_test, dic_leader_size,
+        stop_state=True, allow_mainline_yield=True)
     print("First scheduled release:", released_leader, next_leader, chosen_m_leader)
+    formatted_actions = {
+        leader: round(delta, 3)
+        for leader, delta in mainline_actions.items()}
+    print("Mainline actions:", formatted_actions)

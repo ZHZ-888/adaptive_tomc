@@ -33,8 +33,16 @@ X = df_ft2[feature_cols].values
 y = df_ft2['target'].values
 
 #%% Load model
-loaded_model = joblib.load('/home/zzha/PycharmProjects/RampMerging_2026/'
-                           'rf_models/mr_arrival_prediction_model260319_ndarray.pkl')
+model_path = ('/home/zzha/PycharmProjects/RampMerging_2026/'
+              'rf_models/mr_arrival_prediction_model241128_ndarray.pkl')
+# model_path = ('/home/zzha/PycharmProjects/adaptive_tomc/'
+#               'saved_models/mr_arrival_prediction_model_260715_ndarray.pkl')
+loaded_model = joblib.load(model_path)
+
+#%% single prediction
+features = [12, 247.98856791309686, 16.66938248537268, 799.97915506861, 1]
+res = loaded_model.predict([features])
+print(res)
 
 #%% Make prediction
 y_pred = loaded_model.predict(X)

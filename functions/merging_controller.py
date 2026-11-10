@@ -12,13 +12,15 @@ from functions import action_manager as act_mgr
 from functions import merging_control_regular as mcr
 from functions import dp_jam as dpj
 from functions import merging_control_jam as mcj
+from functions import rf_action_controller as rfac
 
 
 class MergingController:
     def __init__(self, data_recorder, traci, platoon_formation=False,
                  loss_rate=0, mpc_interval=60, delta_t=15,
                  warmup_time=0, comm_rng=None, comp_logger=None,
-                 jam_mode_core='legacy'):  # jam_mode_core: 'legacy' (original Jam_mode) or 'dp' (dynamic programming)
+                 jam_mode_core='legacy', action_rng=None,
+                 yield_ratio_ranges=None):
         self.traci = traci
         self.data_recorder = data_recorder
         self.merge_regular = mcr.MergingControlRegular(traci, self.data_recorder,
@@ -26,13 +28,25 @@ class MergingController:
         self.action_mgr = act_mgr.ActionManager(
             self.data_recorder, self.merge_regular, loss_rate, comm_rng)
 
-        # jam control/av-based ramp metering (original core or DP core)
+        self.jam_mode_core = jam_mode_core
+        self.rf_action_controller = None
+
+        # Select the ramp-metering or action-sampling control core.
         if jam_mode_core == 'legacy':
             self.av_rm = mcj.MergingControlJam(traci, self.data_recorder, self.merge_regular,
                                                    loss_rate, comm_rng)
-        else:
+        elif jam_mode_core == 'dp':
             self.av_rm = dpj.DPJam(traci, self.data_recorder, self.merge_regular,
                                              loss_rate, comm_rng)
+        elif jam_mode_core == 'sampling':
+            # Sample feasible mainline yielding demands, execute their trajectories,
+            # and collect action-aware arrival-time training data.
+            self.av_rm = None
+            self.rf_action_controller = rfac.RFActionController(
+                self.data_recorder, self.merge_regular,
+                action_rng, yield_ratio_ranges)
+        else:
+            raise ValueError(f"Unknown jam_mode_core: {jam_mode_core}")
 
         self.mpc_interval = mpc_interval
         self.delta_t = delta_t
@@ -88,15 +102,36 @@ class MergingController:
             first_pfz_leader=first_pfz_leader)
 
         # === 4. Apply corresponding control logic ===
-        queue_log = self.av_rm.jam_control(
-            step,
-            dic_platoon_info,
-            dic_mplatoon_et,
-            dic_vid_groups,
-            self.ls_r_dep_times,
-            self.mpc_interval,
-            self.delta_t,
-            self.pf)
+        if self.jam_mode_core == 'sampling':
+            new_action_demand = self.rf_action_controller.prepare_action(
+                step, dic_platoon_info, dic_mplatoon_et,
+                dic_vid_groups, self.mpc_interval)
+
+            if new_action_demand is not None:
+                leader = new_action_demand['leader']
+                features = self.merge_regular.get_rf_at_features(leader)
+                self.data_recorder.record_rf_action_features(
+                    leader, features,
+                    new_action_demand['action_start_ts'],
+                    new_action_demand['est_head_dur'],
+                    new_action_demand['yield_dur'],
+                    new_action_demand['max_delta_t'],
+                    new_action_demand['yield_ratio'],
+                    new_action_demand['target_head_ts'])
+
+            action_m_leader = self.rf_action_controller.execute_action(
+                step, dic_vid_groups)
+            queue_log = []
+        else:
+            queue_log = self.av_rm.jam_control(
+                step,
+                dic_platoon_info,
+                dic_mplatoon_et,
+                dic_vid_groups,
+                self.ls_r_dep_times,
+                self.mpc_interval,
+                self.delta_t,
+                self.pf)
 
         # average_velocity of this step and its jam_state
         step_speed = self.data_recorder.get_average_speed(step, ls_veh_id, jam_mode=True)
